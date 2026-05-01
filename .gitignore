@@ -1,0 +1,11 @@
+# Root build artifacts
+/build/
+
+# Android/Gradle specific ignores
+*.iml
+.gradle
+/local.properties
+/.idea/
+.DS_Store
+src/build
+src/app/build
