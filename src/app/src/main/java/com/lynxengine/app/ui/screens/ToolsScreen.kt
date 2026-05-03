@@ -15,7 +15,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -38,10 +41,14 @@ fun ToolsScreen(
     onExportPif: (Uri) -> Unit,
     onExportKeybox: (Uri) -> Unit,
     onShowPrintPif: () -> Unit,
-    onDismissPrintPif: () -> Unit
+    onDismissPrintPif: () -> Unit,
+    onAddHideDevApp: (String) -> Unit,
+    onRemoveHideDevApp: (String) -> Unit
 ) {
     val context = LocalContext.current
     var showClearDialog by remember { mutableStateOf(false) }
+    var hideDevExpanded by remember { mutableStateOf(false) }
+    var hideDevInput by remember { mutableStateOf("") }
 
     val pifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -164,6 +171,86 @@ fun ToolsScreen(
                 }
             }
 
+
+            // ── Hide Developer Options ────────────────────────────────────────
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Hide Developer Options", fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                                color = MaterialTheme.colorScheme.primary)
+                            Text(
+                                if (uiState.hideDeveloperApps.isEmpty()) "No apps configured"
+                                else "${uiState.hideDeveloperApps.size} app(s) configured",
+                                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        IconButton(onClick = { hideDevExpanded = !hideDevExpanded }) {
+                            Icon(
+                                if (hideDevExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = null, tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                    if (hideDevExpanded) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp),
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                        Surface(shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)) {
+                            Text(
+                                "Apps added here will see ADB debugging and Developer Options as disabled.",
+                                modifier = Modifier.padding(10.dp), fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurface, lineHeight = 17.sp
+                            )
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = hideDevInput,
+                                onValueChange = { hideDevInput = it },
+                                modifier = Modifier.weight(1f),
+                                placeholder = { Text("com.example.app", fontSize = 12.sp) },
+                                label = { Text("Package name") },
+                                singleLine = true,
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                            Button(
+                                onClick = { if (hideDevInput.isNotBlank()) { onAddHideDevApp(hideDevInput.trim()); hideDevInput = "" } },
+                                enabled = hideDevInput.isNotBlank()
+                            ) { Text("Add") }
+                        }
+                        if (uiState.hideDeveloperApps.isNotEmpty()) {
+                            Spacer(Modifier.height(10.dp))
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                            Spacer(Modifier.height(6.dp))
+                            uiState.hideDeveloperApps.sorted().forEach { pkg ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(pkg, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.weight(1f))
+                                    IconButton(onClick = { onRemoveHideDevApp(pkg) },
+                                        modifier = Modifier.size(32.dp)) {
+                                        Icon(Icons.Default.Close, contentDescription = "Remove",
+                                            tint = LynxRed, modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             StatusCard(uiState.isPifLoaded, uiState.isKeyboxLoaded, onRefresh)
         }
 

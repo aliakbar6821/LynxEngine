@@ -40,7 +40,10 @@ data class LynxUiState(
     
     // Print PIF Dialog
     val showPrintPifDialog: Boolean = false,
-    val currentPifDetails: String = ""
+    val currentPifDetails: String = "",
+
+    // Hide Developer Status
+    val hideDeveloperApps: Set<String> = emptySet()
 )
 
 class LynxViewModel(application: Application) : AndroidViewModel(application) {
@@ -60,6 +63,7 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
     init {
         verifyFrameworkIntegration()
         refreshStateOnly()
+        loadHideDevApps()
         checkAndAutoUpdateOnLaunch()
     }
 
@@ -82,6 +86,37 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(showIntegrationWarning = false) }
     }
 
+
+    // ── Hide Developer Apps ───────────────────────────────────────────────
+    fun loadHideDevApps() {
+        viewModelScope.launch {
+            val apps = withContext(Dispatchers.IO) {
+                com.lynxengine.app.utils.SettingsUtils.getHideDevApps(getApplication())
+            }
+            _uiState.update { it.copy(hideDeveloperApps = apps) }
+        }
+    }
+
+    fun addHideDevApp(pkg: String) {
+        if (pkg.isBlank()) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                com.lynxengine.app.utils.SettingsUtils.addHideDevApp(getApplication(), pkg.trim())
+            }
+            loadHideDevApps()
+            _uiState.update { it.copy(toastMessage = "Added: ${pkg.trim()}") }
+        }
+    }
+
+    fun removeHideDevApp(pkg: String) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                com.lynxengine.app.utils.SettingsUtils.removeHideDevApp(getApplication(), pkg)
+            }
+            loadHideDevApps()
+            _uiState.update { it.copy(toastMessage = "Removed: $pkg") }
+        }
+    }
     private fun refreshStateOnly() {
         _uiState.update {
             it.copy(

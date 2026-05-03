@@ -38,4 +38,26 @@ object SettingsUtils {
 
     fun clearAll(context: Context): Boolean =
         clearPifData(context) && clearKeyboxData(context)
+
+    // ── Hide Developer Status ─────────────────────────────────────────────
+    // This key is read by LynxHideDevUtils.smali in framework.jar
+    private const val KEY_HIDE_DEV = "lynx_hide_dev_status"
+
+    fun getHideDevApps(context: Context): Set<String> = runCatching {
+        val raw = Settings.Secure.getString(context.contentResolver, KEY_HIDE_DEV)
+        if (raw.isNullOrBlank()) emptySet()
+        else raw.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+    }.getOrDefault(emptySet())
+
+    fun addHideDevApp(context: Context, pkg: String): Boolean = runCatching {
+        val current = getHideDevApps(context).toMutableSet()
+        current.add(pkg)
+        Settings.Secure.putString(context.contentResolver, KEY_HIDE_DEV, current.joinToString(","))
+    }.getOrDefault(false)
+
+    fun removeHideDevApp(context: Context, pkg: String): Boolean = runCatching {
+        val current = getHideDevApps(context).toMutableSet()
+        current.remove(pkg)
+        Settings.Secure.putString(context.contentResolver, KEY_HIDE_DEV, current.joinToString(","))
+    }.getOrDefault(false)
 }

@@ -224,7 +224,9 @@ fun LynxApp(viewModel: LynxViewModel) {
                             onExportPif = viewModel::exportPifToUri,
                             onExportKeybox = viewModel::exportKeyboxToUri,
                             onShowPrintPif = viewModel::showPrintPif,
-                            onDismissPrintPif = viewModel::dismissPrintPifDialog
+                            onDismissPrintPif = viewModel::dismissPrintPifDialog,
+                            onAddHideDevApp = viewModel::addHideDevApp,
+                            onRemoveHideDevApp = viewModel::removeHideDevApp
                         )
                     }
                 }
