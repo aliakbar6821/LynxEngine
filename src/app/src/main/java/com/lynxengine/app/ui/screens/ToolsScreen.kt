@@ -334,7 +334,7 @@ private fun HideDevPage(
             alreadyAdded = uiState.hideDeveloperApps,
             onConfirm = { selected ->
                 showAppPicker = false
-                if (selected.isNotEmpty()) onAddHideDevApps(selected)
+                if (selected.isNotEmpty()) onAddHideDevApps(selected.toSet())
             },
             onDismiss = { showAppPicker = false }
         )
@@ -456,7 +456,7 @@ private fun InstalledAppPicker(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val selected = remember { mutableStateSetOf<String>() }
+    val selected = androidx.compose.runtime.mutableStateListOf<String>()
     var searchQuery by remember { mutableStateOf("") }
 
     // Load installed apps on first composition
@@ -571,7 +571,3 @@ private fun copyUriToTemp(context: android.content.Context, uri: Uri, name: Stri
     tmp
 }.getOrNull()
 
-// mutableStateSetOf helper
-@Composable
-private fun <T> mutableStateSetOf(vararg elements: T): MutableSet<T> =
-    remember { mutableStateOf(mutableSetOf(*elements)).value }
