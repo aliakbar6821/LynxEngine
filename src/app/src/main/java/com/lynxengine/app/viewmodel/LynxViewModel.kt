@@ -86,6 +86,11 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(showIntegrationWarning = false) }
     }
 
+    fun recheck() {
+        verifyFrameworkIntegration()
+        refreshStateOnly()
+    }
+
 
     // ── Hide Developer Apps ───────────────────────────────────────────────
     fun loadHideDevApps() {
@@ -97,14 +102,14 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun addHideDevApp(pkg: String) {
-        if (pkg.isBlank()) return
+    fun addHideDevApps(pkgs: Set<String>) {
+        if (pkgs.isEmpty()) return
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
-                com.lynxengine.app.utils.SettingsUtils.addHideDevApp(getApplication(), pkg.trim())
+                pkgs.forEach { com.lynxengine.app.utils.SettingsUtils.addHideDevApp(getApplication(), it) }
             }
             loadHideDevApps()
-            _uiState.update { it.copy(toastMessage = "Added: ${pkg.trim()}") }
+            _uiState.update { it.copy(toastMessage = "Added ${pkgs.size} app(s)") }
         }
     }
 
@@ -115,6 +120,24 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
             }
             loadHideDevApps()
             _uiState.update { it.copy(toastMessage = "Removed: $pkg") }
+        }
+    }
+
+    fun forceStopHideDevApps() {
+        val apps = _uiState.value.hideDeveloperApps
+        if (apps.isEmpty()) {
+            _uiState.update { it.copy(toastMessage = "No apps configured") }
+            return
+        }
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                apps.forEach { pkg ->
+                    runCatching {
+                        Runtime.getRuntime().exec(arrayOf("am", "force-stop", pkg))
+                    }
+                }
+            }
+            _uiState.update { it.copy(toastMessage = "Force stopped ${apps.size} app(s)") }
         }
     }
     private fun refreshStateOnly() {

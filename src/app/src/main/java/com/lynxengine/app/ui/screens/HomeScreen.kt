@@ -9,7 +9,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.lynxengine.app.ui.components.DeviceInfoCard
 import com.lynxengine.app.ui.components.InfoRow
-import com.lynxengine.app.ui.components.StatusCard
 import com.lynxengine.app.utils.DeviceUtils
 import com.lynxengine.app.viewmodel.LynxUiState
 
@@ -28,7 +27,6 @@ fun HomeScreen(uiState: LynxUiState, onRefresh: () -> Unit, isIntegrated: Boolea
         item { InfoRow(Icons.Default.Laptop, "Model", DeviceUtils.getModel()) }
         item { InfoRow(Icons.Default.Terminal, "Kernel", DeviceUtils.getKernelVersion()) }
         item { InfoRow(Icons.Default.Fingerprint, "Fingerprint", DeviceUtils.getFingerprint()) }
-        item { StatusCard(uiState.isPifLoaded, uiState.isKeyboxLoaded, onRefresh) }
         item { Spacer(Modifier.height(8.dp)) }
     }
 }

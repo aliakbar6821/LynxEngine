@@ -6,27 +6,25 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.lynxengine.app.ui.screens.HomeScreen
 import com.lynxengine.app.ui.screens.SettingsScreen
 import com.lynxengine.app.ui.screens.ToolsScreen
 import com.lynxengine.app.ui.theme.LynxEngineTheme
 import com.lynxengine.app.viewmodel.LynxViewModel
-import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     private val viewModel: LynxViewModel by viewModels()
@@ -48,73 +46,34 @@ private enum class Tab(val label: String, val icon: ImageVector) {
     SETTINGS("Settings", Icons.Default.Settings)
 }
 
-// ── 5-second integration banner ───────────────────────────────────────────────
-@Composable
-fun IntegrationBanner(visible: Boolean) {
-    AnimatedVisibility(
-        visible = visible,
-        enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
-        exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut()
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Color(0xFF1B5E20),
-                tonalElevation = 8.dp,
-                shadowElevation = 6.dp
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Icon(
-                        Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        tint = Color(0xFF69F0AE),
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Text(
-                        "LynxEngine Integrated",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
-                    )
-                }
-            }
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LynxApp(viewModel: LynxViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
 
-    // Show banner for exactly 5 seconds once integration check completes
-    var showBanner by remember { mutableStateOf(false) }
-    var bannerHandled by remember { mutableStateOf(false) }
-
-    LaunchedEffect(uiState.integrationChecked) {
-        if (!uiState.integrationChecked) return@LaunchedEffect
-        if (bannerHandled) return@LaunchedEffect
-        bannerHandled = true
-
-        if (uiState.isFrameworkIntegrated) {
-            showBanner = true
-            delay(5000L)
-            showBanner = false
+    // Recheck on every resume so user can load PIF via cmd while app is backgrounded
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.recheck()
         }
-        // Not integrated -> warning dialog shown below
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // Generic toasts for load/refresh/etc actions
+    // Integration status as a bottom Toast — no UI shifting
+    var toastHandled by remember { mutableStateOf(false) }
+    LaunchedEffect(uiState.integrationChecked) {
+        if (!uiState.integrationChecked) return@LaunchedEffect
+        if (toastHandled) return@LaunchedEffect
+        toastHandled = true
+        if (uiState.isFrameworkIntegrated) {
+            Toast.makeText(context, "LynxEngine Integrated", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // All other action toasts (refresh, load, update, etc.)
     LaunchedEffect(uiState.toastMessage) {
         uiState.toastMessage?.let { msg ->
             Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
@@ -124,39 +83,38 @@ fun LynxApp(viewModel: LynxViewModel) {
 
     var selectedTab by remember { mutableStateOf(Tab.HOME) }
 
+    // Snap back to HOME if integration is lost
+    LaunchedEffect(uiState.isFrameworkIntegrated) {
+        if (!uiState.isFrameworkIntegrated) selectedTab = Tab.HOME
+    }
+
     // Not-integrated warning dialog
     if (uiState.showIntegrationWarning) {
         AlertDialog(
             onDismissRequest = { viewModel.dismissIntegrationWarning() },
             icon = {
-                Icon(
-                    Icons.Default.Warning,
-                    contentDescription = null,
+                Icon(Icons.Default.Warning, null,
                     tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(48.dp)
-                )
+                    modifier = Modifier.size(48.dp))
             },
             title = {
-                Text(
-                    "LynxEngine Not Integrated",
+                Text("LynxEngine Not Integrated",
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                    color = MaterialTheme.colorScheme.onSurface)
             },
             text = {
                 Text(
-                    "No PIF data found in Settings.Secure.\n\n" +
-                    "Load your pif.json via cmd first, then reopen the app:\n" +
-                    "  settings put secure lynx_pif_data <json>\n\n" +
-                    "Tools and Settings will unlock once PIF data is detected.",
+                    "No PIF or Keybox data found in Settings.Secure.\n\n" +
+                    "Load both files via cmd, then come back to the app:\n" +
+                    "  settings put secure lynx_pif_data <json>\n" +
+                    "  settings put secure lynx_keybox_data <xml>\n\n" +
+                    "Tools and Settings will unlock automatically.",
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.dismissIntegrationWarning() }) {
-                    Text("OK")
-                }
+                TextButton(onClick = { viewModel.dismissIntegrationWarning() }) { Text("OK") }
             },
             containerColor = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp
@@ -166,30 +124,20 @@ fun LynxApp(viewModel: LynxViewModel) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
-            Column {
-                TopAppBar(
-                    title = { Text("Lynx Engine") },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        titleContentColor = MaterialTheme.colorScheme.onSurface
-                    )
+            TopAppBar(
+                title = { Text("Lynx Engine") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
                 )
-                // Banner slides in below top bar, auto-hides after 5s
-                IntegrationBanner(visible = showBanner)
-            }
+            )
         },
         bottomBar = {
             NavigationBar(
                 containerColor = MaterialTheme.colorScheme.surface,
                 tonalElevation = 3.dp
             ) {
-                // Tools + Settings only visible when hook is confirmed active
-                val availableTabs = if (uiState.isFrameworkIntegrated) {
-                    Tab.entries
-                } else {
-                    listOf(Tab.HOME)
-                }
-
+                val availableTabs = if (uiState.isFrameworkIntegrated) Tab.entries else listOf(Tab.HOME)
                 availableTabs.forEach { tab ->
                     NavigationBarItem(
                         selected = selectedTab == tab,
@@ -201,11 +149,7 @@ fun LynxApp(viewModel: LynxViewModel) {
             }
         }
     ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
+        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             when (selectedTab) {
                 Tab.HOME -> HomeScreen(
                     uiState = uiState,
@@ -225,8 +169,9 @@ fun LynxApp(viewModel: LynxViewModel) {
                             onExportKeybox = viewModel::exportKeyboxToUri,
                             onShowPrintPif = viewModel::showPrintPif,
                             onDismissPrintPif = viewModel::dismissPrintPifDialog,
-                            onAddHideDevApp = viewModel::addHideDevApp,
-                            onRemoveHideDevApp = viewModel::removeHideDevApp
+                            onAddHideDevApps = viewModel::addHideDevApps,
+                            onRemoveHideDevApp = viewModel::removeHideDevApp,
+                            onRefreshHideDevApps = viewModel::forceStopHideDevApps
                         )
                     }
                 }
