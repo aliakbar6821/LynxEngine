@@ -17,8 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.*import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -464,16 +463,8 @@ private fun InstalledAppPicker(
     var searchQuery by remember { mutableStateOf("") }
     var showSystemApps by remember { mutableStateOf(false) }
 
-    // All user apps (non-system) — loaded once
-    val userApps = remember {
-        context.packageManager
-            .getInstalledApplications(PackageManager.GET_META_DATA)
-            .filter { it.packageName != context.packageName }
-            .filter { (it.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) == 0 }
-            .sortedBy { context.packageManager.getApplicationLabel(it).toString().lowercase() }
-    }
-
-    // All apps including system — loaded lazily when toggle is first switched on
+    // All installed apps — requires QUERY_ALL_PACKAGES permission (added to manifest)
+    // so getInstalledApplications() returns 3rd-party apps on Android 11+
     val allApps = remember {
         context.packageManager
             .getInstalledApplications(PackageManager.GET_META_DATA)
@@ -481,16 +472,29 @@ private fun InstalledAppPicker(
             .sortedBy { context.packageManager.getApplicationLabel(it).toString().lowercase() }
     }
 
-    // Active list switches based on toggle
+    // User / 3rd-party apps only:
+    //   FLAG_SYSTEM == 0  → not a system app
+    //   FLAG_UPDATED_SYSTEM_APP != 0 → pre-installed but updated by the user (show these too)
+    val userApps = remember(allApps) {
+        allApps.filter { app ->
+            val isSystem  = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+            val isUpdated = (app.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+            !isSystem || isUpdated
+        }
+    }
+
+    // Active list: user apps by default; ALL apps when system toggle is ON
     val baseList = if (showSystemApps) allApps else userApps
 
-    // Filter by search query
-    val filtered = remember(searchQuery, showSystemApps) {
-        if (searchQuery.isBlank()) baseList
-        else baseList.filter {
-            val label = context.packageManager.getApplicationLabel(it).toString()
-            label.contains(searchQuery, ignoreCase = true) ||
-            it.packageName.contains(searchQuery, ignoreCase = true)
+    // Filter by search query — derivedStateOf keeps it reactive to both state vars
+    val filtered by remember(searchQuery, showSystemApps) {
+        derivedStateOf {
+            if (searchQuery.isBlank()) baseList
+            else baseList.filter {
+                val label = context.packageManager.getApplicationLabel(it).toString()
+                label.contains(searchQuery, ignoreCase = true) ||
+                it.packageName.contains(searchQuery, ignoreCase = true)
+            }
         }
     }
 
