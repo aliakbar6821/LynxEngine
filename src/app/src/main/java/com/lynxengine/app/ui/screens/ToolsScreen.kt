@@ -450,28 +450,47 @@ private fun HideDevPage(
 
 // ── Installed App Picker — full-screen with multi-select ─────────────────────
 @Composable
+
+// ── Installed App Picker — full-screen with multi-select ─────────────────────
+@Composable
 private fun InstalledAppPicker(
     alreadyAdded: Set<String>,
     onConfirm: (Set<String>) -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val selected = androidx.compose.runtime.mutableStateListOf<String>()
-    var searchQuery by remember { mutableStateOf("") }
 
-    // Load installed apps on first composition
-    val installedApps = remember {
+    // BUG FIX: must be inside remember{} — without it the list is recreated
+    // on every recomposition, wiping selections the instant a checkbox is tapped.
+    val selected = remember { androidx.compose.runtime.mutableStateListOf<String>() }
+
+    var searchQuery by remember { mutableStateOf("") }
+    var showSystemApps by remember { mutableStateOf(false) }
+
+    // All user apps (non-system) — loaded once
+    val userApps = remember {
         context.packageManager
             .getInstalledApplications(PackageManager.GET_META_DATA)
-            .filter { it.packageName != context.packageName }  // exclude self
-            .sortedBy { pm ->
-                context.packageManager.getApplicationLabel(pm).toString().lowercase()
-            }
+            .filter { it.packageName != context.packageName }
+            .filter { (it.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) == 0 }
+            .sortedBy { context.packageManager.getApplicationLabel(it).toString().lowercase() }
     }
 
-    val filtered = remember(searchQuery, installedApps) {
-        if (searchQuery.isBlank()) installedApps
-        else installedApps.filter {
+    // All apps including system — loaded lazily when toggle is first switched on
+    val allApps = remember {
+        context.packageManager
+            .getInstalledApplications(PackageManager.GET_META_DATA)
+            .filter { it.packageName != context.packageName }
+            .sortedBy { context.packageManager.getApplicationLabel(it).toString().lowercase() }
+    }
+
+    // Active list switches based on toggle
+    val baseList = if (showSystemApps) allApps else userApps
+
+    // Filter by search query
+    val filtered = remember(searchQuery, showSystemApps) {
+        if (searchQuery.isBlank()) baseList
+        else baseList.filter {
             val label = context.packageManager.getApplicationLabel(it).toString()
             label.contains(searchQuery, ignoreCase = true) ||
             it.packageName.contains(searchQuery, ignoreCase = true)
@@ -480,6 +499,8 @@ private fun InstalledAppPicker(
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+
+            // ── Top bar ───────────────────────────────────────────────────
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onDismiss) {
                     Icon(Icons.Default.ArrowBack, null)
@@ -496,6 +517,7 @@ private fun InstalledAppPicker(
 
             Spacer(Modifier.height(8.dp))
 
+            // ── Search bar ────────────────────────────────────────────────
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
@@ -515,12 +537,34 @@ private fun InstalledAppPicker(
 
             Spacer(Modifier.height(8.dp))
 
-            Text("${filtered.size} apps  •  ${selected.size} selected",
-                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // ── Stats row + system apps toggle ────────────────────────────
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "${filtered.size} apps  •  ${selected.size} selected",
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("System apps", fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Switch(
+                        checked = showSystemApps,
+                        onCheckedChange = { showSystemApps = it },
+                        modifier = Modifier.height(24.dp)
+                    )
+                }
+            }
 
             Spacer(Modifier.height(4.dp))
 
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+            // ── App list ──────────────────────────────────────────────────
+            LazyColumn {
                 items(filtered, key = { it.packageName }) { appInfo ->
                     val pkg = appInfo.packageName
                     val label = context.packageManager.getApplicationLabel(appInfo).toString()
@@ -531,6 +575,7 @@ private fun InstalledAppPicker(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable(enabled = !alreadyIn) {
+                                // Directly mutate the SnapshotStateList — triggers recomposition correctly
                                 if (isChecked) selected.remove(pkg) else selected.add(pkg)
                             }
                             .padding(vertical = 10.dp, horizontal = 4.dp),
@@ -539,7 +584,11 @@ private fun InstalledAppPicker(
                     ) {
                         Checkbox(
                             checked = isChecked || alreadyIn,
-                            onCheckedChange = null,  // handled by row click
+                            onCheckedChange = { checked ->
+                                if (!alreadyIn) {
+                                    if (checked) selected.add(pkg) else selected.remove(pkg)
+                                }
+                            },
                             enabled = !alreadyIn
                         )
                         Column(modifier = Modifier.weight(1f)) {
