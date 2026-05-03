@@ -450,9 +450,6 @@ private fun HideDevPage(
 
 // ── Installed App Picker — full-screen with multi-select ─────────────────────
 @Composable
-
-// ── Installed App Picker — full-screen with multi-select ─────────────────────
-@Composable
 private fun InstalledAppPicker(
     alreadyAdded: Set<String>,
     onConfirm: (Set<String>) -> Unit,
