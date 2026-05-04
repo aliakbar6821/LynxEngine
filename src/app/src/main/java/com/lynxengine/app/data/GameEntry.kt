@@ -393,7 +393,7 @@ object RecommendedProfiles {
         "com.ea.gp.fifamobile"           to "ROG Phone 5s",
 
         // ── Where Winds Meet / Genshin-tier open world → Xiaomi 14 Ultra ─────
-        "com.netease.game.xyzmobile"       to "Xiaomi 14 Ultra",
+        "com.netease.yysls"                to "Xiaomi 14 Ultra",
         "com.miHoYo.GenshinImpact"         to "Xiaomi 14 Ultra",
         "com.HoYoverse.GenshinImpactpc"    to "Xiaomi 14 Ultra",
         "com.miHoYo.HonkaiStarRail"        to "Xiaomi 14 Ultra",
