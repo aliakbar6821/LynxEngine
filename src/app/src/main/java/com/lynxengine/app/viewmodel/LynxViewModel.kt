@@ -4,10 +4,12 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.lynxengine.app.data.GameEntry
 import com.lynxengine.app.data.LynxRepository
 import com.lynxengine.app.utils.ForceStopUtils
 import com.lynxengine.app.utils.FrameworkVerifier
 import com.lynxengine.app.utils.NetworkUtils
+import com.lynxengine.app.utils.SettingsUtils
 import com.lynxengine.app.worker.AutoUpdateScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +18,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -27,23 +30,27 @@ data class LynxUiState(
     val isKeyboxLoaded: Boolean = false,
     val toastMessage: String? = null,
     val isLoading: Boolean = false,
-    
+
     // Auto Update
     val autoUpdateEnabled: Boolean = false,
     val autoUpdateIntervalDays: Int = 3,
     val lastAutoUpdateFormatted: String = "Never",
-    
+
     // Framework Integration
     val isFrameworkIntegrated: Boolean = false,
-    val integrationChecked: Boolean = false,   // true once verifyFrameworkIntegration() completes
+    val integrationChecked: Boolean = false,
     val showIntegrationWarning: Boolean = false,
-    
+
     // Print PIF Dialog
     val showPrintPifDialog: Boolean = false,
     val currentPifDetails: String = "",
 
     // Hide Developer Status
-    val hideDeveloperApps: Set<String> = emptySet()
+    val hideDeveloperApps: Set<String> = emptySet(),
+
+    // Game Unlocker
+    val gameUnlockerEnabled: Boolean = false,
+    val gameUnlockerGames: List<GameEntry> = emptyList()
 )
 
 class LynxViewModel(application: Application) : AndroidViewModel(application) {
@@ -52,7 +59,7 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(
         LynxUiState(
-            autoUpdateEnabled = repo.isAutoUpdateEnabled(),
+            autoUpdateEnabled      = repo.isAutoUpdateEnabled(),
             autoUpdateIntervalDays = repo.getAutoUpdateInterval(),
             lastAutoUpdateFormatted = formatLastUpdate(repo.getLastAutoUpdateTime())
         )
@@ -64,6 +71,7 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
         verifyFrameworkIntegration()
         refreshStateOnly()
         loadHideDevApps()
+        loadGameUnlocker()
         checkAndAutoUpdateOnLaunch()
     }
 
@@ -75,7 +83,7 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update {
                 it.copy(
                     isFrameworkIntegrated = isIntegrated,
-                    integrationChecked = true,
+                    integrationChecked    = true,
                     showIntegrationWarning = !isIntegrated
                 )
             }
@@ -91,12 +99,11 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
         refreshStateOnly()
     }
 
-
     // ── Hide Developer Apps ───────────────────────────────────────────────
     fun loadHideDevApps() {
         viewModelScope.launch {
             val apps = withContext(Dispatchers.IO) {
-                com.lynxengine.app.utils.SettingsUtils.getHideDevApps(getApplication())
+                SettingsUtils.getHideDevApps(getApplication())
             }
             _uiState.update { it.copy(hideDeveloperApps = apps) }
         }
@@ -106,7 +113,7 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
         if (pkgs.isEmpty()) return
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
-                pkgs.forEach { com.lynxengine.app.utils.SettingsUtils.addHideDevApp(getApplication(), it) }
+                pkgs.forEach { SettingsUtils.addHideDevApp(getApplication(), it) }
             }
             loadHideDevApps()
             _uiState.update { it.copy(toastMessage = "Added ${pkgs.size} app(s)") }
@@ -116,7 +123,7 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
     fun removeHideDevApp(pkg: String) {
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
-                com.lynxengine.app.utils.SettingsUtils.removeHideDevApp(getApplication(), pkg)
+                SettingsUtils.removeHideDevApp(getApplication(), pkg)
             }
             loadHideDevApps()
             _uiState.update { it.copy(toastMessage = "Removed: $pkg") }
@@ -132,18 +139,118 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
                 apps.forEach { pkg ->
-                    runCatching {
-                        Runtime.getRuntime().exec(arrayOf("am", "force-stop", pkg))
-                    }
+                    runCatching { Runtime.getRuntime().exec(arrayOf("am", "force-stop", pkg)) }
                 }
             }
             _uiState.update { it.copy(toastMessage = "Force stopped ${apps.size} app(s)") }
         }
     }
+
+    // ── Game Unlocker ─────────────────────────────────────────────────────
+    fun loadGameUnlocker() {
+        viewModelScope.launch {
+            val (enabled, games) = withContext(Dispatchers.IO) {
+                parseGameData(SettingsUtils.getGameData(getApplication()))
+            }
+            _uiState.update { it.copy(gameUnlockerEnabled = enabled, gameUnlockerGames = games) }
+        }
+    }
+
+    fun toggleGameUnlocker(enabled: Boolean) {
+        val games = _uiState.value.gameUnlockerGames
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                SettingsUtils.setGameData(getApplication(), serializeGameData(enabled, games))
+            }
+            _uiState.update { it.copy(gameUnlockerEnabled = enabled) }
+            _uiState.update {
+                it.copy(toastMessage = if (enabled) "Game Unlocker enabled" else "Game Unlocker disabled")
+            }
+        }
+    }
+
+    fun addGameEntry(entry: GameEntry) {
+        val current = _uiState.value.gameUnlockerGames.toMutableList()
+        // Replace if already exists for same package
+        current.removeAll { it.packageName == entry.packageName }
+        current.add(entry)
+        saveGameList(current)
+        _uiState.update { it.copy(toastMessage = "✅ ${entry.appName} added") }
+    }
+
+    fun removeGameEntry(packageName: String) {
+        val current = _uiState.value.gameUnlockerGames.filter { it.packageName != packageName }
+        saveGameList(current)
+        _uiState.update { it.copy(toastMessage = "Removed game profile") }
+    }
+
+    private fun saveGameList(games: List<GameEntry>) {
+        val enabled = _uiState.value.gameUnlockerEnabled
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                SettingsUtils.setGameData(getApplication(), serializeGameData(enabled, games))
+            }
+            _uiState.update { it.copy(gameUnlockerGames = games) }
+        }
+    }
+
+    // ── JSON helpers (org.json — no extra deps) ───────────────────────────
+    private fun parseGameData(raw: String?): Pair<Boolean, List<GameEntry>> {
+        if (raw.isNullOrBlank()) return Pair(false, emptyList())
+        return runCatching {
+            val root    = JSONObject(raw)
+            val enabled = root.optBoolean("enabled", false)
+            val games   = mutableListOf<GameEntry>()
+            if (root.has("games")) {
+                val obj = root.getJSONObject("games")
+                obj.keys().forEach { pkg ->
+                    val g = obj.getJSONObject(pkg)
+                    games.add(
+                        GameEntry(
+                            packageName  = pkg,
+                            appName      = g.optString("appName", pkg),
+                            mode         = g.optString("mode", "auto"),
+                            profileName  = g.optString("profileName", ""),
+                            brand        = g.optString("BRAND", ""),
+                            device       = g.optString("DEVICE", ""),
+                            manufacturer = g.optString("MANUFACTURER", ""),
+                            model        = g.optString("MODEL", ""),
+                            fingerprint  = g.optString("FINGERPRINT", ""),
+                            product      = g.optString("PRODUCT", "")
+                        )
+                    )
+                }
+            }
+            Pair(enabled, games)
+        }.getOrDefault(Pair(false, emptyList()))
+    }
+
+    private fun serializeGameData(enabled: Boolean, games: List<GameEntry>): String {
+        val root     = JSONObject()
+        val gamesObj = JSONObject()
+        games.forEach { g ->
+            val entry = JSONObject()
+            entry.put("appName",      g.appName)
+            entry.put("mode",         g.mode)
+            entry.put("profileName",  g.profileName)
+            entry.put("BRAND",        g.brand)
+            entry.put("DEVICE",       g.device)
+            entry.put("MANUFACTURER", g.manufacturer)
+            entry.put("MODEL",        g.model)
+            entry.put("FINGERPRINT",  g.fingerprint)
+            entry.put("PRODUCT",      g.product)
+            gamesObj.put(g.packageName, entry)
+        }
+        root.put("enabled", enabled)
+        root.put("games",   gamesObj)
+        return root.toString()
+    }
+
+    // ── Everything below is unchanged ─────────────────────────────────────
     private fun refreshStateOnly() {
         _uiState.update {
             it.copy(
-                isPifLoaded = repo.isPifLoaded(),
+                isPifLoaded    = repo.isPifLoaded(),
                 isKeyboxLoaded = repo.isKeyboxLoaded()
             )
         }
@@ -157,13 +264,10 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
                 val stop = withContext(Dispatchers.IO) {
                     ForceStopUtils.restartGoogleServices(getApplication())
                 }
-                val msg = if (stop.hardStop) "✅ Refreshed & GMS restarted"
-                else "⚠️ Refreshed (soft restart)"
+                val msg = if (stop.hardStop) "✅ Refreshed & GMS restarted" else "⚠️ Refreshed (soft restart)"
                 _uiState.update { it.copy(isLoading = false, toastMessage = msg) }
             } catch (e: Throwable) {
-                _uiState.update {
-                    it.copy(isLoading = false, toastMessage = "❌ ${e.message?.take(50)}")
-                }
+                _uiState.update { it.copy(isLoading = false, toastMessage = "❌ ${e.message?.take(50)}") }
             }
         }
     }
@@ -171,17 +275,11 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
     private fun checkAndAutoUpdateOnLaunch() {
         if (!repo.isAutoUpdateEnabled()) return
         if (!NetworkUtils.isOnline(getApplication())) return
-
-        val last = repo.getLastAutoUpdateTime()
+        val last     = repo.getLastAutoUpdateTime()
         val interval = TimeUnit.DAYS.toMillis(repo.getAutoUpdateInterval().toLong())
-        val now = System.currentTimeMillis()
-
-        if (last == 0L || now - last >= interval) {
-            performAutoUpdate()
-        }
+        if (last == 0L || System.currentTimeMillis() - last >= interval) performAutoUpdate()
     }
 
-    // ── Auto Update ───────────────────────────────────────────────────────
     fun setAutoUpdateEnabled(enabled: Boolean) {
         repo.setAutoUpdateEnabled(enabled)
         _uiState.update { it.copy(autoUpdateEnabled = enabled) }
@@ -196,9 +294,7 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
     fun setAutoUpdateInterval(days: Int) {
         repo.setAutoUpdateInterval(days)
         _uiState.update { it.copy(autoUpdateIntervalDays = days) }
-        if (repo.isAutoUpdateEnabled()) {
-            AutoUpdateScheduler.schedule(getApplication(), days)
-        }
+        if (repo.isAutoUpdateEnabled()) AutoUpdateScheduler.schedule(getApplication(), days)
     }
 
     fun performAutoUpdate() {
@@ -211,9 +307,7 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
             repo.downloadAndApplyFromGitHub()
                 .onSuccess { msg ->
                     refreshStateOnly()
-                    val stop = withContext(Dispatchers.IO) {
-                        ForceStopUtils.restartGoogleServices(getApplication())
-                    }
+                    val stop = withContext(Dispatchers.IO) { ForceStopUtils.restartGoogleServices(getApplication()) }
                     _uiState.update {
                         it.copy(
                             isLoading = false,
@@ -223,127 +317,80 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 .onFailure { e ->
-                    _uiState.update {
-                        it.copy(isLoading = false, toastMessage = "❌ ${e.message?.take(100)}")
-                    }
+                    _uiState.update { it.copy(isLoading = false, toastMessage = "❌ ${e.message?.take(100)}") }
                 }
         }
     }
 
-    // ── Load Files ────────────────────────────────────────────────────────
     fun loadPif(file: File) = viewModelScope.launch {
         if (_uiState.value.autoUpdateEnabled) {
-            _uiState.update { it.copy(toastMessage = "⚠️ Disable Auto Update first") }
-            return@launch
+            _uiState.update { it.copy(toastMessage = "⚠️ Disable Auto Update first") }; return@launch
         }
         _uiState.update { it.copy(isLoading = true) }
         repo.loadPifFromFile(file)
-            .onSuccess {
-                refreshStateOnly()
-                ForceStopUtils.restartGoogleServices(getApplication())
-                _uiState.update { it.copy(isLoading = false, toastMessage = "✅ PIF loaded") }
-            }
-            .onFailure { e ->
-                _uiState.update { it.copy(isLoading = false, toastMessage = "❌ ${e.message}") }
-            }
+            .onSuccess { refreshStateOnly(); ForceStopUtils.restartGoogleServices(getApplication()); _uiState.update { it.copy(isLoading = false, toastMessage = "✅ PIF loaded") } }
+            .onFailure { e -> _uiState.update { it.copy(isLoading = false, toastMessage = "❌ ${e.message}") } }
     }
 
     fun loadKeybox(file: File) = viewModelScope.launch {
         if (_uiState.value.autoUpdateEnabled) {
-            _uiState.update { it.copy(toastMessage = "⚠️ Disable Auto Update first") }
-            return@launch
+            _uiState.update { it.copy(toastMessage = "⚠️ Disable Auto Update first") }; return@launch
         }
         _uiState.update { it.copy(isLoading = true) }
         repo.loadKeyboxFromFile(file)
-            .onSuccess {
-                refreshStateOnly()
-                ForceStopUtils.restartGoogleServices(getApplication())
-                _uiState.update { it.copy(isLoading = false, toastMessage = "✅ Keybox loaded") }
-            }
-            .onFailure { e ->
-                _uiState.update { it.copy(isLoading = false, toastMessage = "❌ ${e.message}") }
-            }
+            .onSuccess { refreshStateOnly(); ForceStopUtils.restartGoogleServices(getApplication()); _uiState.update { it.copy(isLoading = false, toastMessage = "✅ Keybox loaded") } }
+            .onFailure { e -> _uiState.update { it.copy(isLoading = false, toastMessage = "❌ ${e.message}") } }
     }
 
-    // ── Print PIF ─────────────────────────────────────────────────────────
     fun showPrintPif() {
         val pif = repo.getPifData()
-        val details = if (pif.isNullOrBlank()) {
-            "No PIF loaded"
-        } else {
-            try {
-                val json = com.google.gson.JsonParser.parseString(pif).asJsonObject
-                buildString {
-                    appendLine("=== Current PIF ===")
-                    appendLine("Fingerprint: ${json.get("FINGERPRINT")?.asString ?: "N/A"}")
-                    appendLine("Brand: ${json.get("BRAND")?.asString ?: "N/A"}")
-                    appendLine("Device: ${json.get("DEVICE")?.asString ?: "N/A"}")
-                    appendLine("Product: ${json.get("PRODUCT")?.asString ?: "N/A"}")
-                    appendLine("Manufacturer: ${json.get("MANUFACTURER")?.asString ?: "N/A"}")
-                    appendLine("Model: ${json.get("MODEL")?.asString ?: "N/A"}")
-                    appendLine("Android: ${json.get("RELEASE")?.asString ?: "N/A"}")
-                    appendLine("Security Patch: ${json.get("SECURITY_PATCH")?.asString ?: "N/A"}")
-                    appendLine("Tags: ${json.get("TAGS")?.asString ?: "N/A"}")
-                    appendLine("ID: ${json.get("ID")?.asString ?: "N/A"}")
-                }
-            } catch (e: Exception) {
-                "Error parsing PIF: ${e.message}"
+        val details = if (pif.isNullOrBlank()) "No PIF loaded"
+        else runCatching {
+            val json = com.google.gson.JsonParser.parseString(pif).asJsonObject
+            buildString {
+                appendLine("=== Current PIF ===")
+                appendLine("Fingerprint: ${json.get("FINGERPRINT")?.asString ?: "N/A"}")
+                appendLine("Brand: ${json.get("BRAND")?.asString ?: "N/A"}")
+                appendLine("Device: ${json.get("DEVICE")?.asString ?: "N/A"}")
+                appendLine("Product: ${json.get("PRODUCT")?.asString ?: "N/A"}")
+                appendLine("Manufacturer: ${json.get("MANUFACTURER")?.asString ?: "N/A"}")
+                appendLine("Model: ${json.get("MODEL")?.asString ?: "N/A"}")
+                appendLine("Android: ${json.get("RELEASE")?.asString ?: "N/A"}")
+                appendLine("Security Patch: ${json.get("SECURITY_PATCH")?.asString ?: "N/A"}")
             }
-        }
+        }.getOrDefault("Error parsing PIF")
         _uiState.update { it.copy(showPrintPifDialog = true, currentPifDetails = details) }
     }
 
-    fun dismissPrintPifDialog() {
-        _uiState.update { it.copy(showPrintPifDialog = false) }
-    }
+    fun dismissPrintPifDialog() { _uiState.update { it.copy(showPrintPifDialog = false) } }
 
-    // ── Export ────────────────────────────────────────────────────────────
     fun exportPifToUri(uri: Uri) = viewModelScope.launch {
         val data = repo.getPifData()
-        if (data.isNullOrBlank()) {
-            _uiState.update { it.copy(toastMessage = "❌ No PIF") }
-            return@launch
-        }
+        if (data.isNullOrBlank()) { _uiState.update { it.copy(toastMessage = "❌ No PIF") }; return@launch }
         writeUri(uri, data, "PIF")
     }
 
     fun exportKeyboxToUri(uri: Uri) = viewModelScope.launch {
         val data = repo.getKeyboxData()
-        if (data.isNullOrBlank()) {
-            _uiState.update { it.copy(toastMessage = "❌ No Keybox") }
-            return@launch
-        }
+        if (data.isNullOrBlank()) { _uiState.update { it.copy(toastMessage = "❌ No Keybox") }; return@launch }
         writeUri(uri, data, "Keybox")
     }
 
     private suspend fun writeUri(uri: Uri, text: String, name: String) {
         runCatching {
-            getApplication<Application>().contentResolver
-                .openOutputStream(uri)?.use { it.write(text.toByteArray(Charsets.UTF_8)) }
-        }.onSuccess {
-            _uiState.update { it.copy(toastMessage = "✅ $name exported") }
-        }.onFailure {
-            _uiState.update { it.copy(toastMessage = "❌ Export failed") }
-        }
+            getApplication<Application>().contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+        }.onSuccess { _uiState.update { it.copy(toastMessage = "✅ $name exported") } }
+         .onFailure { _uiState.update { it.copy(toastMessage = "❌ Export failed") } }
     }
 
-    // ── Clear ─────────────────────────────────────────────────────────────
     fun clearAll() = viewModelScope.launch {
         _uiState.update { it.copy(isLoading = true) }
         repo.clearAll()
-            .onSuccess {
-                refreshStateOnly()
-                ForceStopUtils.restartGoogleServices(getApplication())
-                _uiState.update { it.copy(isLoading = false, toastMessage = "✅ Cleared") }
-            }
-            .onFailure { e ->
-                _uiState.update { it.copy(isLoading = false, toastMessage = "❌ ${e.message}") }
-            }
+            .onSuccess { refreshStateOnly(); ForceStopUtils.restartGoogleServices(getApplication()); _uiState.update { it.copy(isLoading = false, toastMessage = "✅ Cleared") } }
+            .onFailure { e -> _uiState.update { it.copy(isLoading = false, toastMessage = "❌ ${e.message}") } }
     }
 
-    fun dismissToast() {
-        _uiState.update { it.copy(toastMessage = null) }
-    }
+    fun dismissToast() { _uiState.update { it.copy(toastMessage = null) } }
 
     companion object {
         fun formatLastUpdate(millis: Long): String {

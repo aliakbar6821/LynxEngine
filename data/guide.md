@@ -55,7 +55,7 @@ Landroid/security/KeyStore2;
 
 **Method:**
 ```smali
- getKeyEntry(Landroid/system/keystore2/KeyDescriptor;
+getKeyEntry(Landroid/system/keystore2/KeyDescriptor;)Landroid/system/keystore2/KeyEntryResponse;
 ```
 
 Find this line:
@@ -88,7 +88,7 @@ Landroid/security/KeyStoreSecurityLevel;
 
 **Method:**
 ```smali
- generateKey(Landroid/system/keystore2/KeyDescriptor;
+generateKey(Landroid/system/keystore2/KeyDescriptor;Landroid/system/keystore2/KeyDescriptor;Ljava/util/Collection;I[B)Landroid/system/keystore2/KeyMetadata;
 ```
 
 Find this line:
@@ -128,11 +128,248 @@ return-object v0
 
 ```
 
+### 4)
+**Class:**
+```smali
+Landroid/provider/Settings$Global;
+```
+**Method:**
+```smali
+getInt(Landroid/content/ContentResolver;Ljava/lang/String;)I
+```
+Increase:
+```smali
+.registers X
+```
+by one
+
+Then find:
+```smali
+invoke-virtual {p0}, Landroid/content/ContentResolver;->getPackageName()Ljava/lang/String;
+```
+
+Then find the next line:
+
+```smali
+move-result-object p0
+```
+then replace it with
+
+```smali
+move-result-object v0
+```
+
+After that add:
+
+```smali
+invoke-static {p0, v0, p1}, Lcom/android/internal/util/lynx/LynxHideDevUtils;->shouldHideDeveloperStatus(Landroid/content/ContentResolver;Ljava/lang/String;Ljava/lang/String;)Z
+
+move-result v0
+
+if-eqz v0, :lynx_global_getint_continue
+
+const/4 v0, 0x0
+
+return v0
+
+:lynx_global_getint_continue
+```
+
+Then find this:
+
+```smali
+invoke-static {p0, p1}, Landroid/provider/Settings$Global;->getString(Landroid/content/ContentResolver;Ljava/lang/String;)Ljava/lang/String;
+```
+Find the next line:
+
+```smali
+move-result-object p0
+```
+
+Replace it with:
+
+```smali
+move-result-object v0
+```
+Then find this:
+```smali
+invoke-static {p0, p1}, Landroid/provider/Settings;->-$$Nest$smparseIntSetting(Ljava/lang/String;Ljava/lang/String;)I
+```
+Replace it with:
+```smali
+invoke-static {v0, p1}, Landroid/provider/Settings;->-$$Nest$smparseIntSetting(Ljava/lang/String;Ljava/lang/String;)I
+```
+Then find the next line:
+```smali
+move-result p0
+```
+Replace it with:
+```smali
+move-result v0
+```
+Then find:
+```smali
+return p0
+```
+Replace it with:
+```smali
+return v0
+```
+
+**Method:**
+```smali
+getInt(Landroid/content/ContentResolver;Ljava/lang/String;I)I
+```
+Increase:
+```smali
+.registers X
+```
+by one
+
+Then find:
+```smali
+invoke-virtual {p0}, Landroid/content/ContentResolver;->getPackageName()Ljava/lang/String;
+```
+Then find the next line:
+```smali
+move-result-object p0
+```
+replace it with
+```smali
+move-result-object v0
+```
+After that add:
+```smali
+invoke-static {p0, v0, p1}, Lcom/android/internal/util/lynx/LynxHideDevUtils;->shouldHideDeveloperStatus(Landroid/content/ContentResolver;Ljava/lang/String;Ljava/lang/String;)Z
+
+move-result v0
+
+if-eqz v0, :lynx_global_getint_def_continue
+
+const/4 v0, 0x0
+
+return v0
+
+:lynx_global_getint_def_continue
+```
+Then find this:
+```smali
+invoke-static {p0, p1}, Landroid/provider/Settings$Global;->getString(Landroid/content/ContentResolver;Ljava/lang/String;)Ljava/lang/String;
+```
+Find the next line:
+```smali
+move-result-object p0
+```
+Replace it with:
+```smali
+move-result-object v0
+```
+Then find this:
+```smali
+invoke-static {p0, p2}, Landroid/provider/Settings;->-$$Nest$smparseIntSettingWithDefault(Ljava/lang/String;I)I
+```
+Replace it with:
+```smali
+invoke-static {v0, p2}, Landroid/provider/Settings;->-$$Nest$smparseIntSettingWithDefault(Ljava/lang/String;I)I
+```
+Then find the next line:
+```smali
+move-result p0
+```
+Replace it with:
+```smali
+move-result v0
+```
+Then find:
+```smali
+return p0
+```
+Replace it with:
+```smali
+return v0
+```
+### 5)
+**Class:**
+```smali
+Landroid/provider/Settings$Secure;
+```
+**Method:**
+```smali
+getIntForUser(Landroid/content/ContentResolver;Ljava/lang/String;I)I
+```
+Increase:
+```smali
+.registers X
+```
+by one
+
+Then find:
+```smali
+invoke-virtual {p0}, Landroid/content/ContentResolver;->getPackageName()Ljava/lang/String;
+```
+Then find the next line:
+```smali
+move-result-object p0
+```
+Replace it with:
+```smali
+move-result-object v0
+```
+After that add:
+```smali
+invoke-static {p0, v0, p1}, Lcom/android/internal/util/lynx/LynxHideDevUtils;->shouldHideDeveloperStatus(Landroid/content/ContentResolver;Ljava/lang/String;Ljava/lang/String;)Z
+
+move-result v0
+
+if-eqz v0, :lynx_secure_getintforuser_continue
+
+const/4 v0, 0x0
+
+return v0
+
+:lynx_secure_getintforuser_continue
+```
+Then find this:
+```smali
+invoke-static {p0, p1, p2}, Landroid/provider/Settings$Secure;->getStringForUser(Landroid/content/ContentResolver;Ljava/lang/String;I)Ljava/lang/String;
+```
+Find the next line:
+```smali
+move-result-object p0
+```
+Replace it with:
+```smali
+move-result-object v0
+```
+Then find this:
+```smali
+invoke-static {p0, p1}, Landroid/provider/Settings;->-$$Nest$smparseIntSetting(Ljava/lang/String;Ljava/lang/String;)I
+```
+Replace it with:
+```smali
+invoke-static {v0, p1}, Landroid/provider/Settings;->-$$Nest$smparseIntSetting(Ljava/lang/String;Ljava/lang/String;)I
+```
+Then find the next line:
+```smali
+move-result p0
+```
+replace it with:
+```smali
+move-result v0
+```
+Then find:
+```smali
+return p0
+```
+Replace it with:
+```smali
+return v0
+```
 ---
 
 ## Summary
 
-- `Framework.jar`: hook `Instrumentation`, `KeyStore2`, and `KeyStoreSecurityLevel`
+- `Framework.jar`: hook `Instrumentation`, `KeyStore2`, `KeyStoreSecurityLevel`, `Settings$Global`, and `Settings$Secure`
 
 ## 🔄 For Port/OEM ROM (no existing spoofing)
 Use the **SAME** instructions as the Custom ROM method above, but keep in mind:

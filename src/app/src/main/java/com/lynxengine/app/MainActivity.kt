@@ -171,7 +171,10 @@ fun LynxApp(viewModel: LynxViewModel) {
                             onDismissPrintPif = viewModel::dismissPrintPifDialog,
                             onAddHideDevApps = viewModel::addHideDevApps,
                             onRemoveHideDevApp = viewModel::removeHideDevApp,
-                            onRefreshHideDevApps = viewModel::forceStopHideDevApps
+                            onRefreshHideDevApps = viewModel::forceStopHideDevApps,
+                            onToggleGameUnlocker = viewModel::toggleGameUnlocker,
+                            onAddGameEntry = viewModel::addGameEntry,
+                            onRemoveGameEntry = viewModel::removeGameEntry
                         )
                     }
                 }
