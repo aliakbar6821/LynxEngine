@@ -316,3 +316,96 @@ data class GameDeviceProfile(
     val fingerprint: String,
     val product: String
 )
+
+/**
+ * Per-game recommended profile names — sourced from Clover/EvolutionX GamesPropsUtils research.
+ * Key   = package name
+ * Value = name that matches a DeviceProfiles.ALL entry (profile.name)
+ *
+ * These are the exact device whitelists that each game checks internally.
+ * Picking ANY other profile may still work, but these are confirmed.
+ */
+object RecommendedProfiles {
+
+    val MAP: Map<String, String> = mapOf(
+
+        // ── PUBG Mobile (all regions) → Galaxy S24 Ultra (SM-S928B) ────────
+        "com.tencent.ig"              to "Samsung Galaxy S24 Ultra",
+        "com.pubg.imobile"            to "Samsung Galaxy S24 Ultra",
+        "com.pubg.krmobile"           to "Samsung Galaxy S24 Ultra",
+        "com.rekoo.pubgm"             to "Samsung Galaxy S24 Ultra",
+        "com.tencent.tmgp.pubgmhd"   to "Samsung Galaxy S24 Ultra",
+        "com.vng.pubgmobile"          to "Samsung Galaxy S24 Ultra",
+        "com.blizzard.diablo.immortal" to "Samsung Galaxy S24 Ultra",
+        "com.kitkagames.fallbuddies"  to "Samsung Galaxy S24 Ultra",
+
+        // ── Call of Duty Mobile (all regions) → Lenovo Y700 ─────────────────
+        // Unlocks 120fps in Battle Royale mode
+        "com.activision.callofduty.shooter" to "Lenovo Y700 (Gaming Tablet)",
+        "com.garena.game.codm"              to "Lenovo Y700 (Gaming Tablet)",
+        "com.tencent.tmgp.kr.codm"         to "Lenovo Y700 (Gaming Tablet)",
+        "com.vng.codmvn"                    to "Lenovo Y700 (Gaming Tablet)",
+
+        // ── Free Fire / Free Fire Max / Mobile Legends → POCO F5 ─────────────
+        "com.dts.freefireth"  to "POCO F5",
+        "com.dts.freefiremax" to "POCO F5",
+        "com.mobile.legends"  to "POCO F5",
+
+        // ── Wild Rift (all regions) / Infinite Borders → OnePlus 8 Pro 5G ───
+        "com.riotgames.league.wildrift"   to "OnePlus 8 Pro 5G",
+        "com.riotgames.league.wildrifttw" to "OnePlus 8 Pro 5G",
+        "com.riotgames.league.wildriftvn" to "OnePlus 8 Pro 5G",
+        "com.netease.lztgglobal"          to "OnePlus 8 Pro 5G",
+
+        // ── Fortnite / LoL Mobile / PES → OnePlus 9 Pro 5G ──────────────────
+        "com.epicgames.fortnite"  to "OnePlus 9 Pro 5G",
+        "com.epicgames.portal"    to "OnePlus 9 Pro 5G",
+        "com.tencent.lolm"        to "OnePlus 9 Pro 5G",
+        "jp.konami.pesam"         to "OnePlus 9 Pro 5G",
+
+        // ── TFT / Asphalt / Dead Trigger → ROG Phone 6D Ultimate ─────────────
+        "com.riotgames.league.teamfighttactics"   to "ROG Phone 6D Ultimate",
+        "com.riotgames.league.teamfighttacticstw" to "ROG Phone 6D Ultimate",
+        "com.riotgames.league.teamfighttacticsvn" to "ROG Phone 6D Ultimate",
+        "com.gameloft.android.ANMP.GloftA9HM"    to "ROG Phone 6D Ultimate",
+        "com.madfingergames.legends"               to "ROG Phone 6D Ultimate",
+
+        // ── Honor of Kings (Global / VN) → Xiaomi 13 Pro ─────────────────────
+        "com.levelinfinite.sgameGlobal" to "Xiaomi 13 Pro",
+        "com.tencent.tmgp.sgame"        to "Xiaomi 13 Pro",
+
+        // ── Apex Legends / Brawl Stars / Clash of Clans → Xiaomi 11T Pro ─────
+        "com.ea.gp.apexlegendsmobilefps" to "Xiaomi 11T Pro",
+        "com.supercell.brawlstars"       to "Xiaomi 11T Pro",
+        "com.supercell.clashofclans"     to "Xiaomi 11T Pro",
+        "com.levelinfinite.hotta.gp"     to "Xiaomi 11T Pro",
+        "com.vng.mlbbvn"                 to "Xiaomi 11T Pro",
+
+        // ── iQOO / CrossFire / COD tencent / Naraka → iQOO 12 Pro ───────────
+        "com.tencent.KiHan"    to "iQOO 12 Pro",
+        "com.tencent.tmgp.cf"  to "iQOO 12 Pro",
+        "com.tencent.tmgp.cod" to "iQOO 12 Pro",
+        "com.tencent.tmgp.gnyx" to "iQOO 12 Pro",
+
+        // ── Black Desert / FIFA Mobile → ROG Phone 5s ────────────────────────
+        "com.pearlabyss.blackdesertm.gl" to "ROG Phone 5s",
+        "com.pearlabyss.blackdesertm"    to "ROG Phone 5s",
+        "com.ea.gp.fifamobile"           to "ROG Phone 5s",
+
+        // ── Where Winds Meet / Genshin-tier open world → Xiaomi 14 Ultra ─────
+        "com.netease.game.xyzmobile"       to "Xiaomi 14 Ultra",
+        "com.miHoYo.GenshinImpact"         to "Xiaomi 14 Ultra",
+        "com.HoYoverse.GenshinImpactpc"    to "Xiaomi 14 Ultra",
+        "com.miHoYo.HonkaiStarRail"        to "Xiaomi 14 Ultra",
+        "com.HoYoverse.StarRailGlobal"     to "Xiaomi 14 Ultra",
+
+        // ── Aether Gazer → RedMagic 9 Pro ────────────────────────────────────
+        "com.YoStar.AetherGazer" to "RedMagic 9 Pro",
+
+        // ── Mobile Legends VN → Xiaomi 11T Pro ───────────────────────────────
+        "com.proximabeta.mf.uamo" to "Xiaomi 11T Pro",
+    )
+
+    /** Returns the recommended profile name for a package, or null if none known. */
+    fun getFor(packageName: String): String? = MAP[packageName]
+}

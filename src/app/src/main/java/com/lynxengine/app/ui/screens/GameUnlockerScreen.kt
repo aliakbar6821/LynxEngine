@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.lynxengine.app.data.DeviceProfiles
+import com.lynxengine.app.data.RecommendedProfiles
 import com.lynxengine.app.data.GameDeviceProfile
 import com.lynxengine.app.data.GameEntry
 import com.lynxengine.app.ui.theme.LynxGreen
@@ -85,6 +86,7 @@ fun GameUnlockerPage(
     if (step is GamePickerStep.PickProfile) {
         val s = step as GamePickerStep.PickProfile
         ProfileSelectorDialog(
+            packageName = s.app.packageName,
             onProfileSelected = { profile ->
                 onAddGame(
                     GameEntry(
@@ -482,11 +484,28 @@ private fun GameAppPicker(
 // ── Profile Selector Dialog ───────────────────────────────────────────────────
 @Composable
 private fun ProfileSelectorDialog(
+    packageName: String,
     onProfileSelected: (GameDeviceProfile) -> Unit,
     onManual: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    var selected by remember { mutableStateOf<GameDeviceProfile?>(null) }
+    val recommendedName = remember(packageName) { RecommendedProfiles.getFor(packageName) }
+
+    // Sort: recommended profile first, then alphabetical
+    val sortedProfiles = remember(recommendedName) {
+        if (recommendedName == null) DeviceProfiles.ALL
+        else {
+            val rec = DeviceProfiles.ALL.filter { it.name == recommendedName }
+            val rest = DeviceProfiles.ALL.filter { it.name != recommendedName }
+            rec + rest
+        }
+    }
+
+    var selected by remember { mutableStateOf<GameDeviceProfile?>(
+        // Auto-select the recommended profile if one exists
+        if (recommendedName != null) DeviceProfiles.ALL.firstOrNull { it.name == recommendedName }
+        else null
+    ) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -517,14 +536,39 @@ private fun ProfileSelectorDialog(
 
                 Spacer(Modifier.height(12.dp))
 
+                // Recommended hint banner
+                if (recommendedName != null) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = LynxGreen.copy(alpha = 0.1f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.Star, null,
+                                tint = LynxGreen, modifier = Modifier.size(16.dp))
+                            Text(
+                                "Recommended: $recommendedName — pre-selected based on known game whitelists.",
+                                fontSize = 11.sp, lineHeight = 15.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+
                 // Profiles list
                 LazyColumn(modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(DeviceProfiles.ALL, key = { it.name }) { profile ->
+                    items(sortedProfiles, key = { it.name }) { profile ->
                         ProfileOption(
-                            profile    = profile,
-                            isSelected = selected == profile,
-                            onClick    = { selected = profile }
+                            profile       = profile,
+                            isSelected    = selected == profile,
+                            isRecommended = profile.name == recommendedName,
+                            onClick       = { selected = profile }
                         )
                     }
                 }
@@ -560,6 +604,7 @@ private fun ProfileSelectorDialog(
 private fun ProfileOption(
     profile: GameDeviceProfile,
     isSelected: Boolean,
+    isRecommended: Boolean,
     onClick: () -> Unit
 ) {
     val bg = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
@@ -572,8 +617,11 @@ private fun ProfileOption(
     ) {
         Column(modifier = Modifier.padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 // Selection indicator
                 Box(
                     modifier = Modifier.size(16.dp).clip(CircleShape).background(
@@ -588,7 +636,33 @@ private fun ProfileOption(
                             modifier = Modifier.size(10.dp))
                 }
                 Text(profile.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurface)
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f))
+                // Recommended badge
+                if (isRecommended) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = LynxGreen.copy(alpha = 0.15f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Star, null,
+                                tint = LynxGreen,
+                                modifier = Modifier.size(10.dp)
+                            )
+                            Text(
+                                "Recommended",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = LynxGreen
+                            )
+                        }
+                    }
+                }
             }
 
             // Manufacturer + Model
