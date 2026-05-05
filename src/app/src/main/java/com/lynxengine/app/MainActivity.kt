@@ -52,7 +52,6 @@ fun LynxApp(viewModel: LynxViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
 
-    // Recheck on every resume so user can load PIF via cmd while app is backgrounded
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -62,7 +61,6 @@ fun LynxApp(viewModel: LynxViewModel) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // Integration status as a bottom Toast — no UI shifting
     var toastHandled by remember { mutableStateOf(false) }
     LaunchedEffect(uiState.integrationChecked) {
         if (!uiState.integrationChecked) return@LaunchedEffect
@@ -73,7 +71,6 @@ fun LynxApp(viewModel: LynxViewModel) {
         }
     }
 
-    // All other action toasts (refresh, load, update, etc.)
     LaunchedEffect(uiState.toastMessage) {
         uiState.toastMessage?.let { msg ->
             Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
@@ -83,12 +80,10 @@ fun LynxApp(viewModel: LynxViewModel) {
 
     var selectedTab by remember { mutableStateOf(Tab.HOME) }
 
-    // Snap back to HOME if integration is lost
     LaunchedEffect(uiState.isFrameworkIntegrated) {
         if (!uiState.isFrameworkIntegrated) selectedTab = Tab.HOME
     }
 
-    // Not-integrated warning dialog
     if (uiState.showIntegrationWarning) {
         AlertDialog(
             onDismissRequest = { viewModel.dismissIntegrationWarning() },
@@ -127,7 +122,7 @@ fun LynxApp(viewModel: LynxViewModel) {
             TopAppBar(
                 title = { Text("Lynx Engine") },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor    = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 )
             )
@@ -141,9 +136,9 @@ fun LynxApp(viewModel: LynxViewModel) {
                 availableTabs.forEach { tab ->
                     NavigationBarItem(
                         selected = selectedTab == tab,
-                        onClick = { selectedTab = tab },
-                        icon = { Icon(tab.icon, tab.label) },
-                        label = { Text(tab.label) }
+                        onClick  = { selectedTab = tab },
+                        icon     = { Icon(tab.icon, tab.label) },
+                        label    = { Text(tab.label) }
                     )
                 }
             }
@@ -152,38 +147,40 @@ fun LynxApp(viewModel: LynxViewModel) {
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             when (selectedTab) {
                 Tab.HOME -> HomeScreen(
-                    uiState = uiState,
-                    onRefresh = viewModel::refresh,
+                    uiState      = uiState,
+                    onRefresh    = viewModel::refresh,
                     isIntegrated = uiState.isFrameworkIntegrated
                 )
                 Tab.TOOLS -> {
                     if (uiState.isFrameworkIntegrated) {
                         ToolsScreen(
-                            uiState = uiState,
-                            onLoadPif = viewModel::loadPif,
-                            onLoadKeybox = viewModel::loadKeybox,
-                            onRefresh = viewModel::refresh,
-                            onClearAll = viewModel::clearAll,
-                            onAutoUpdate = viewModel::performAutoUpdate,
-                            onExportPif = viewModel::exportPifToUri,
-                            onExportKeybox = viewModel::exportKeyboxToUri,
-                            onShowPrintPif = viewModel::showPrintPif,
-                            onDismissPrintPif = viewModel::dismissPrintPifDialog,
-                            onAddHideDevApps = viewModel::addHideDevApps,
-                            onRemoveHideDevApp = viewModel::removeHideDevApp,
+                            uiState              = uiState,
+                            onLoadPif            = viewModel::loadPif,
+                            onLoadKeybox         = viewModel::loadKeybox,
+                            onRefresh            = viewModel::refresh,
+                            onClearAll           = viewModel::clearAll,
+                            onAutoUpdate         = viewModel::performAutoUpdate,
+                            onExportPif          = viewModel::exportPifToUri,
+                            onExportKeybox       = viewModel::exportKeyboxToUri,
+                            onShowPrintPif       = viewModel::showPrintPif,
+                            onDismissPrintPif    = viewModel::dismissPrintPifDialog,
+                            onAddHideDevApps     = viewModel::addHideDevApps,
+                            onRemoveHideDevApp   = viewModel::removeHideDevApp,
                             onRefreshHideDevApps = viewModel::forceStopHideDevApps,
                             onToggleGameUnlocker = viewModel::toggleGameUnlocker,
-                            onAddGameEntry = viewModel::addGameEntry,
-                            onRemoveGameEntry = viewModel::removeGameEntry
+                            onAddGameEntry       = viewModel::addGameEntry,
+                            onRemoveGameEntry    = viewModel::removeGameEntry
                         )
                     }
                 }
                 Tab.SETTINGS -> {
                     if (uiState.isFrameworkIntegrated) {
                         SettingsScreen(
-                            uiState = uiState,
+                            uiState           = uiState,
                             onToggleAutoUpdate = viewModel::setAutoUpdateEnabled,
-                            onSetInterval = viewModel::setAutoUpdateInterval
+                            onSetInterval      = viewModel::setAutoUpdateInterval,
+                            onEnableRootMode   = viewModel::enableRootMode,
+                            onDisableRootMode  = viewModel::disableRootMode
                         )
                     }
                 }

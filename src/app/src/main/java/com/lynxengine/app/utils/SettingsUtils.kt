@@ -2,12 +2,27 @@ package com.lynxengine.app.utils
 
 import android.content.Context
 import android.provider.Settings
+import java.io.File
 
 object SettingsUtils {
 
-    private const val KEY_PIF     = "lynx_pif_data"
-    private const val KEY_KEYBOX  = "lynx_keybox_data"
+    private const val KEY_PIF    = "lynx_pif_data"
+    private const val KEY_KEYBOX = "lynx_keybox_data"
 
+    // ── Root mode preference ──────────────────────────────────────────────
+    private const val PREFS_NAME    = "lynx_prefs"
+    private const val KEY_ROOT_MODE = "root_mode_enabled"
+
+    fun isRootModeEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_ROOT_MODE, false)
+
+    fun setRootModeEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_ROOT_MODE, enabled).apply()
+    }
+
+    // ── PIF / Keybox — always via Settings.Secure (unchanged) ─────────────
     fun getPifData(context: Context): String? =
         Settings.Secure.getString(context.contentResolver, KEY_PIF)
 
@@ -40,7 +55,6 @@ object SettingsUtils {
         clearPifData(context) && clearKeyboxData(context)
 
     // ── Hide Developer Status ─────────────────────────────────────────────
-    // Read by LynxHideDevUtils.smali in framework.jar
     private const val KEY_HIDE_DEV = "lynx_hide_dev_status"
 
     fun getHideDevApps(context: Context): Set<String> = runCatching {
@@ -62,32 +76,48 @@ object SettingsUtils {
     }.getOrDefault(false)
 
     // ── Game Unlocker ─────────────────────────────────────────────────────
-    // Read by LynxGameHooks in framework.jar (injected via Instrumentation hook)
-    // JSON structure:
-    // {
-    //   "enabled": true,
-    //   "games": {
-    //     "com.dts.freefireth": {
-    //       "appName": "Free Fire",
-    //       "mode": "auto",
-    //       "profileName": "ASUS ROG Phone 8 Pro",
-    //       "BRAND": "asus", "DEVICE": "ROG Phone 8 Pro",
-    //       "MANUFACTURER": "asus", "MODEL": "ASUS_AI2401",
-    //       "FINGERPRINT": "asus/WW_...:user/release-keys",
-    //       "PRODUCT": "ASUS_AI2401"
-    //     }
-    //   }
-    // }
-    private const val KEY_GAME_DATA = "lynx_game_data"
+    // Root mode ON  → RootUtils shell ops  → /data/misc/lynx/game_data.json
+    //                 Works even without ROM integration / SELinux policy.
+    // Root mode OFF → direct File API      → /data/misc/lynx/game_data.json
+    //                 Requires init.rc pre-creating the dir + SELinux policy
+    //                 (ROM-baked install). Works with zero root at runtime.
+    //
+    // The smali hook always reads the same path regardless of how it was written.
 
-    fun getGameData(context: Context): String? =
-        Settings.Secure.getString(context.contentResolver, KEY_GAME_DATA)
+    private val GAME_DATA_FILE = File("/data/misc/lynx/game_data.json")
 
-    fun setGameData(context: Context, json: String): Boolean = runCatching {
-        Settings.Secure.putString(context.contentResolver, KEY_GAME_DATA, json)
-    }.getOrDefault(false)
+    fun getGameData(context: Context): String? {
+        return if (isRootModeEnabled(context)) {
+            runCatching { RootUtils.readGameData() }.getOrNull()
+        } else {
+            runCatching {
+                if (!GAME_DATA_FILE.exists()) null
+                else GAME_DATA_FILE.readText(Charsets.UTF_8).takeIf { it.isNotBlank() }
+            }.getOrNull()
+        }
+    }
 
-    fun clearGameData(context: Context): Boolean = runCatching {
-        Settings.Secure.putString(context.contentResolver, KEY_GAME_DATA, null)
-    }.getOrDefault(false)
+    fun setGameData(context: Context, json: String): Boolean {
+        return if (isRootModeEnabled(context)) {
+            runCatching {
+                RootUtils.writeGameData(json, context.cacheDir)
+            }.getOrDefault(false)
+        } else {
+            runCatching {
+                GAME_DATA_FILE.parentFile?.mkdirs()
+                GAME_DATA_FILE.writeText(json, Charsets.UTF_8)
+                true
+            }.getOrDefault(false)
+        }
+    }
+
+    fun clearGameData(context: Context): Boolean {
+        return if (isRootModeEnabled(context)) {
+            runCatching { RootUtils.deleteGameData() }.getOrDefault(false)
+        } else {
+            runCatching {
+                if (GAME_DATA_FILE.exists()) GAME_DATA_FILE.delete() else true
+            }.getOrDefault(false)
+        }
+    }
 }

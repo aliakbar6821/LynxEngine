@@ -9,6 +9,7 @@ import com.lynxengine.app.data.LynxRepository
 import com.lynxengine.app.utils.ForceStopUtils
 import com.lynxengine.app.utils.FrameworkVerifier
 import com.lynxengine.app.utils.NetworkUtils
+import com.lynxengine.app.utils.RootUtils
 import com.lynxengine.app.utils.SettingsUtils
 import com.lynxengine.app.worker.AutoUpdateScheduler
 import kotlinx.coroutines.Dispatchers
@@ -50,7 +51,12 @@ data class LynxUiState(
 
     // Game Unlocker
     val gameUnlockerEnabled: Boolean = false,
-    val gameUnlockerGames: List<GameEntry> = emptyList()
+    val gameUnlockerGames: List<GameEntry> = emptyList(),
+
+    // Root Mode
+    val rootModeEnabled: Boolean = false,
+    val rootStatus: RootUtils.RootStatus = RootUtils.RootStatus.UNKNOWN,
+    val rootLabel: String = ""           // "KernelSU" / "Magisk" / ""
 )
 
 class LynxViewModel(application: Application) : AndroidViewModel(application) {
@@ -59,9 +65,10 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(
         LynxUiState(
-            autoUpdateEnabled      = repo.isAutoUpdateEnabled(),
-            autoUpdateIntervalDays = repo.getAutoUpdateInterval(),
-            lastAutoUpdateFormatted = formatLastUpdate(repo.getLastAutoUpdateTime())
+            autoUpdateEnabled       = repo.isAutoUpdateEnabled(),
+            autoUpdateIntervalDays  = repo.getAutoUpdateInterval(),
+            lastAutoUpdateFormatted = formatLastUpdate(repo.getLastAutoUpdateTime()),
+            rootModeEnabled         = SettingsUtils.isRootModeEnabled(application)
         )
     )
 
@@ -73,6 +80,101 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
         loadHideDevApps()
         loadGameUnlocker()
         checkAndAutoUpdateOnLaunch()
+        // If root mode was previously saved as enabled, verify it's still valid
+        if (SettingsUtils.isRootModeEnabled(application)) {
+            verifyExistingRootAccess()
+        }
+    }
+
+    // ── Root Mode ─────────────────────────────────────────────────────────
+
+    /**
+     * Called when user flips the root switch ON.
+     * Tests actual root access before committing.
+     */
+    fun enableRootMode() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(rootStatus = RootUtils.RootStatus.CHECKING, isLoading = true) }
+
+            val (status, label) = withContext(Dispatchers.IO) {
+                val detected = RootUtils.detectRoot()
+                if (detected == RootUtils.RootStatus.GRANTED) {
+                    // Double-check: can we actually write to the target path?
+                    val writeOk = RootUtils.testWrite()
+                    if (writeOk) {
+                        Pair(RootUtils.RootStatus.GRANTED, RootUtils.rootLabel())
+                    } else {
+                        Pair(RootUtils.RootStatus.DENIED, "")
+                    }
+                } else {
+                    Pair(RootUtils.RootStatus.DENIED, "")
+                }
+            }
+
+            if (status == RootUtils.RootStatus.GRANTED) {
+                SettingsUtils.setRootModeEnabled(getApplication(), true)
+                _uiState.update {
+                    it.copy(
+                        isLoading      = false,
+                        rootModeEnabled = true,
+                        rootStatus     = RootUtils.RootStatus.GRANTED,
+                        rootLabel      = label,
+                        toastMessage   = "✅ Root access granted ($label)"
+                    )
+                }
+            } else {
+                // Don't save — keep root mode off
+                SettingsUtils.setRootModeEnabled(getApplication(), false)
+                _uiState.update {
+                    it.copy(
+                        isLoading       = false,
+                        rootModeEnabled = false,
+                        rootStatus      = RootUtils.RootStatus.DENIED,
+                        rootLabel       = "",
+                        toastMessage    = "❌ Root access denied — KSU or Magisk not found"
+                    )
+                }
+            }
+        }
+    }
+
+    /** Called when user flips the root switch OFF. */
+    fun disableRootMode() {
+        SettingsUtils.setRootModeEnabled(getApplication(), false)
+        _uiState.update {
+            it.copy(
+                rootModeEnabled = false,
+                rootStatus      = RootUtils.RootStatus.UNKNOWN,
+                rootLabel       = "",
+                toastMessage    = "Root mode disabled — ROM integration mode active"
+            )
+        }
+    }
+
+    /** On init, if root mode preference is true, silently verify it's still valid. */
+    private fun verifyExistingRootAccess() {
+        viewModelScope.launch {
+            val status = withContext(Dispatchers.IO) { RootUtils.detectRoot() }
+            if (status != RootUtils.RootStatus.GRANTED) {
+                // Root lost (module removed, etc.) — disable silently
+                SettingsUtils.setRootModeEnabled(getApplication(), false)
+                _uiState.update {
+                    it.copy(
+                        rootModeEnabled = false,
+                        rootStatus      = RootUtils.RootStatus.DENIED,
+                        rootLabel       = "",
+                        toastMessage    = "⚠️ Root access lost — root mode disabled"
+                    )
+                }
+            } else {
+                _uiState.update {
+                    it.copy(
+                        rootStatus = RootUtils.RootStatus.GRANTED,
+                        rootLabel  = RootUtils.rootLabel()
+                    )
+                }
+            }
+        }
     }
 
     private fun verifyFrameworkIntegration() {
@@ -82,8 +184,8 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
             }
             _uiState.update {
                 it.copy(
-                    isFrameworkIntegrated = isIntegrated,
-                    integrationChecked    = true,
+                    isFrameworkIntegrated  = isIntegrated,
+                    integrationChecked     = true,
                     showIntegrationWarning = !isIntegrated
                 )
             }
@@ -171,7 +273,6 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
 
     fun addGameEntry(entry: GameEntry) {
         val current = _uiState.value.gameUnlockerGames.toMutableList()
-        // Replace if already exists for same package
         current.removeAll { it.packageName == entry.packageName }
         current.add(entry)
         saveGameList(current)
@@ -194,7 +295,7 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ── JSON helpers (org.json — no extra deps) ───────────────────────────
+    // ── JSON helpers ──────────────────────────────────────────────────────
     private fun parseGameData(raw: String?): Pair<Boolean, List<GameEntry>> {
         if (raw.isNullOrBlank()) return Pair(false, emptyList())
         return runCatching {
@@ -246,7 +347,7 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
         return root.toString()
     }
 
-    // ── Everything below is unchanged ─────────────────────────────────────
+    // ── Refresh / PIF / Keybox / etc. (unchanged) ─────────────────────────
     private fun refreshStateOnly() {
         _uiState.update {
             it.copy(
