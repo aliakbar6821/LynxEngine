@@ -16,18 +16,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lynxengine.app.ui.theme.LynxGreen
-import com.lynxengine.app.ui.theme.LynxOrange
-import com.lynxengine.app.ui.theme.LynxRed
-import com.lynxengine.app.utils.RootUtils
 import com.lynxengine.app.viewmodel.LynxUiState
 
 @Composable
 fun SettingsScreen(
     uiState: LynxUiState,
     onToggleAutoUpdate: (Boolean) -> Unit,
-    onSetInterval: (Int) -> Unit,
-    onEnableRootMode: () -> Unit,
-    onDisableRootMode: () -> Unit
+    onSetInterval: (Int) -> Unit
 ) {
     val isDark = isSystemInDarkTheme()
 
@@ -57,16 +52,6 @@ fun SettingsScreen(
                 }
             }
         }
-
-        // ── Root Access card ──────────────────────────────────────────────
-        RootAccessCard(
-            enabled     = uiState.rootModeEnabled,
-            status      = uiState.rootStatus,
-            rootLabel   = uiState.rootLabel,
-            isChecking  = uiState.isLoading && uiState.rootStatus == RootUtils.RootStatus.CHECKING,
-            onEnable    = onEnableRootMode,
-            onDisable   = onDisableRootMode
-        )
 
         // ── Auto Update card ──────────────────────────────────────────────
         Card(
@@ -179,111 +164,5 @@ fun SettingsScreen(
         }
 
         Spacer(Modifier.height(16.dp))
-    }
-}
-
-// ── Root Access Card ──────────────────────────────────────────────────────────
-@Composable
-private fun RootAccessCard(
-    enabled:    Boolean,
-    status:     RootUtils.RootStatus,
-    rootLabel:  String,
-    isChecking: Boolean,
-    onEnable:   () -> Unit,
-    onDisable:  () -> Unit
-) {
-    val statusColor = when (status) {
-        RootUtils.RootStatus.GRANTED  -> LynxGreen
-        RootUtils.RootStatus.DENIED   -> LynxRed
-        RootUtils.RootStatus.CHECKING -> LynxOrange
-        RootUtils.RootStatus.UNKNOWN  -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-
-    val statusText = when (status) {
-        RootUtils.RootStatus.GRANTED  -> "Root access granted • $rootLabel"
-        RootUtils.RootStatus.DENIED   -> "Root access denied"
-        RootUtils.RootStatus.CHECKING -> "Checking root access…"
-        RootUtils.RootStatus.UNKNOWN  -> if (enabled) "Verifying…" else "Disabled"
-    }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Default.AdminPanelSettings, null,
-                    tint = if (enabled) LynxGreen else MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(26.dp)
-                )
-                Spacer(Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "Root Access",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    if (isChecking) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(10.dp),
-                                strokeWidth = 1.5.dp,
-                                color = LynxOrange
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(statusText, fontSize = 12.sp, color = LynxOrange)
-                        }
-                    } else {
-                        Text(statusText, fontSize = 12.sp, color = statusColor)
-                    }
-                }
-                Switch(
-                    checked = enabled,
-                    onCheckedChange = { isOn -> if (isOn) onEnable() else onDisable() },
-                    enabled = !isChecking,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = LynxGreen,
-                        checkedTrackColor = LynxGreen.copy(alpha = 0.3f)
-                    )
-                )
-            }
-
-            Spacer(Modifier.height(10.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Spacer(Modifier.height(10.dp))
-
-            // Mode description
-            if (enabled) {
-                Row(verticalAlignment = Alignment.Top) {
-                    Icon(Icons.Default.CheckCircle, null,
-                        tint = LynxGreen, modifier = Modifier.size(16.dp).padding(top = 1.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        "Root mode — game data written via root shell. " +
-                        "Works with module-based installs. No ROM patch required.",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        lineHeight = 17.sp
-                    )
-                }
-            } else {
-                Row(verticalAlignment = Alignment.Top) {
-                    Icon(Icons.Default.Info, null,
-                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp).padding(top = 1.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        "ROM integration mode — game data written directly by the app. " +
-                        "Requires framework patch, init.rc dir creation, and SELinux policy.",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        lineHeight = 17.sp
-                    )
-                }
-            }
-        }
     }
 }

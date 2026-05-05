@@ -4,12 +4,10 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.lynxengine.app.data.GameEntry
 import com.lynxengine.app.data.LynxRepository
 import com.lynxengine.app.utils.ForceStopUtils
 import com.lynxengine.app.utils.FrameworkVerifier
 import com.lynxengine.app.utils.NetworkUtils
-import com.lynxengine.app.utils.RootUtils
 import com.lynxengine.app.utils.SettingsUtils
 import com.lynxengine.app.worker.AutoUpdateScheduler
 import kotlinx.coroutines.Dispatchers
@@ -19,7 +17,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -47,16 +44,7 @@ data class LynxUiState(
     val currentPifDetails: String = "",
 
     // Hide Developer Status
-    val hideDeveloperApps: Set<String> = emptySet(),
-
-    // Game Unlocker
-    val gameUnlockerEnabled: Boolean = false,
-    val gameUnlockerGames: List<GameEntry> = emptyList(),
-
-    // Root Mode
-    val rootModeEnabled: Boolean = false,
-    val rootStatus: RootUtils.RootStatus = RootUtils.RootStatus.UNKNOWN,
-    val rootLabel: String = ""           // "KernelSU" / "Magisk" / ""
+    val hideDeveloperApps: Set<String> = emptySet()
 )
 
 class LynxViewModel(application: Application) : AndroidViewModel(application) {
@@ -67,8 +55,7 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
         LynxUiState(
             autoUpdateEnabled       = repo.isAutoUpdateEnabled(),
             autoUpdateIntervalDays  = repo.getAutoUpdateInterval(),
-            lastAutoUpdateFormatted = formatLastUpdate(repo.getLastAutoUpdateTime()),
-            rootModeEnabled         = SettingsUtils.isRootModeEnabled(application)
+            lastAutoUpdateFormatted = formatLastUpdate(repo.getLastAutoUpdateTime())
         )
     )
 
@@ -78,103 +65,7 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
         verifyFrameworkIntegration()
         refreshStateOnly()
         loadHideDevApps()
-        loadGameUnlocker()
         checkAndAutoUpdateOnLaunch()
-        // If root mode was previously saved as enabled, verify it's still valid
-        if (SettingsUtils.isRootModeEnabled(application)) {
-            verifyExistingRootAccess()
-        }
-    }
-
-    // ── Root Mode ─────────────────────────────────────────────────────────
-
-    /**
-     * Called when user flips the root switch ON.
-     * Tests actual root access before committing.
-     */
-    fun enableRootMode() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(rootStatus = RootUtils.RootStatus.CHECKING, isLoading = true) }
-
-            val (status, label) = withContext(Dispatchers.IO) {
-                val detected = RootUtils.detectRoot()
-                if (detected == RootUtils.RootStatus.GRANTED) {
-                    // Double-check: can we actually write to the target path?
-                    val writeOk = RootUtils.testWrite()
-                    if (writeOk) {
-                        Pair(RootUtils.RootStatus.GRANTED, RootUtils.rootLabel())
-                    } else {
-                        Pair(RootUtils.RootStatus.DENIED, "")
-                    }
-                } else {
-                    Pair(RootUtils.RootStatus.DENIED, "")
-                }
-            }
-
-            if (status == RootUtils.RootStatus.GRANTED) {
-                SettingsUtils.setRootModeEnabled(getApplication(), true)
-                _uiState.update {
-                    it.copy(
-                        isLoading      = false,
-                        rootModeEnabled = true,
-                        rootStatus     = RootUtils.RootStatus.GRANTED,
-                        rootLabel      = label,
-                        toastMessage   = "✅ Root access granted ($label)"
-                    )
-                }
-            } else {
-                // Don't save — keep root mode off
-                SettingsUtils.setRootModeEnabled(getApplication(), false)
-                _uiState.update {
-                    it.copy(
-                        isLoading       = false,
-                        rootModeEnabled = false,
-                        rootStatus      = RootUtils.RootStatus.DENIED,
-                        rootLabel       = "",
-                        toastMessage    = "❌ Root access denied — KSU or Magisk not found"
-                    )
-                }
-            }
-        }
-    }
-
-    /** Called when user flips the root switch OFF. */
-    fun disableRootMode() {
-        SettingsUtils.setRootModeEnabled(getApplication(), false)
-        _uiState.update {
-            it.copy(
-                rootModeEnabled = false,
-                rootStatus      = RootUtils.RootStatus.UNKNOWN,
-                rootLabel       = "",
-                toastMessage    = "Root mode disabled — ROM integration mode active"
-            )
-        }
-    }
-
-    /** On init, if root mode preference is true, silently verify it's still valid. */
-    private fun verifyExistingRootAccess() {
-        viewModelScope.launch {
-            val status = withContext(Dispatchers.IO) { RootUtils.detectRoot() }
-            if (status != RootUtils.RootStatus.GRANTED) {
-                // Root lost (module removed, etc.) — disable silently
-                SettingsUtils.setRootModeEnabled(getApplication(), false)
-                _uiState.update {
-                    it.copy(
-                        rootModeEnabled = false,
-                        rootStatus      = RootUtils.RootStatus.DENIED,
-                        rootLabel       = "",
-                        toastMessage    = "⚠️ Root access lost — root mode disabled"
-                    )
-                }
-            } else {
-                _uiState.update {
-                    it.copy(
-                        rootStatus = RootUtils.RootStatus.GRANTED,
-                        rootLabel  = RootUtils.rootLabel()
-                    )
-                }
-            }
-        }
     }
 
     private fun verifyFrameworkIntegration() {
@@ -246,105 +137,6 @@ class LynxViewModel(application: Application) : AndroidViewModel(application) {
             }
             _uiState.update { it.copy(toastMessage = "Force stopped ${apps.size} app(s)") }
         }
-    }
-
-    // ── Game Unlocker ─────────────────────────────────────────────────────
-    fun loadGameUnlocker() {
-        viewModelScope.launch {
-            val (enabled, games) = withContext(Dispatchers.IO) {
-                parseGameData(SettingsUtils.getGameData(getApplication()))
-            }
-            _uiState.update { it.copy(gameUnlockerEnabled = enabled, gameUnlockerGames = games) }
-        }
-    }
-
-    fun toggleGameUnlocker(enabled: Boolean) {
-        val games = _uiState.value.gameUnlockerGames
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                SettingsUtils.setGameData(getApplication(), serializeGameData(enabled, games))
-            }
-            _uiState.update { it.copy(gameUnlockerEnabled = enabled) }
-            _uiState.update {
-                it.copy(toastMessage = if (enabled) "Game Unlocker enabled" else "Game Unlocker disabled")
-            }
-        }
-    }
-
-    fun addGameEntry(entry: GameEntry) {
-        val current = _uiState.value.gameUnlockerGames.toMutableList()
-        current.removeAll { it.packageName == entry.packageName }
-        current.add(entry)
-        saveGameList(current)
-        _uiState.update { it.copy(toastMessage = "✅ ${entry.appName} added") }
-    }
-
-    fun removeGameEntry(packageName: String) {
-        val current = _uiState.value.gameUnlockerGames.filter { it.packageName != packageName }
-        saveGameList(current)
-        _uiState.update { it.copy(toastMessage = "Removed game profile") }
-    }
-
-    private fun saveGameList(games: List<GameEntry>) {
-        val enabled = _uiState.value.gameUnlockerEnabled
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                SettingsUtils.setGameData(getApplication(), serializeGameData(enabled, games))
-            }
-            _uiState.update { it.copy(gameUnlockerGames = games) }
-        }
-    }
-
-    // ── JSON helpers ──────────────────────────────────────────────────────
-    private fun parseGameData(raw: String?): Pair<Boolean, List<GameEntry>> {
-        if (raw.isNullOrBlank()) return Pair(false, emptyList())
-        return runCatching {
-            val root    = JSONObject(raw)
-            val enabled = root.optBoolean("enabled", false)
-            val games   = mutableListOf<GameEntry>()
-            if (root.has("games")) {
-                val obj = root.getJSONObject("games")
-                obj.keys().forEach { pkg ->
-                    val g = obj.getJSONObject(pkg)
-                    games.add(
-                        GameEntry(
-                            packageName  = pkg,
-                            appName      = g.optString("appName", pkg),
-                            mode         = g.optString("mode", "auto"),
-                            profileName  = g.optString("profileName", ""),
-                            brand        = g.optString("BRAND", ""),
-                            device       = g.optString("DEVICE", ""),
-                            manufacturer = g.optString("MANUFACTURER", ""),
-                            model        = g.optString("MODEL", ""),
-                            fingerprint  = g.optString("FINGERPRINT", ""),
-                            product      = g.optString("PRODUCT", "")
-                        )
-                    )
-                }
-            }
-            Pair(enabled, games)
-        }.getOrDefault(Pair(false, emptyList()))
-    }
-
-    private fun serializeGameData(enabled: Boolean, games: List<GameEntry>): String {
-        val root     = JSONObject()
-        val gamesObj = JSONObject()
-        games.forEach { g ->
-            val entry = JSONObject()
-            entry.put("appName",      g.appName)
-            entry.put("mode",         g.mode)
-            entry.put("profileName",  g.profileName)
-            entry.put("BRAND",        g.brand)
-            entry.put("DEVICE",       g.device)
-            entry.put("MANUFACTURER", g.manufacturer)
-            entry.put("MODEL",        g.model)
-            entry.put("FINGERPRINT",  g.fingerprint)
-            entry.put("PRODUCT",      g.product)
-            gamesObj.put(g.packageName, entry)
-        }
-        root.put("enabled", enabled)
-        root.put("games",   gamesObj)
-        return root.toString()
     }
 
     // ── Refresh / PIF / Keybox / etc. (unchanged) ─────────────────────────

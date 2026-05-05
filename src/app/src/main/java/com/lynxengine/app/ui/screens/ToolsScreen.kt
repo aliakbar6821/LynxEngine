@@ -25,7 +25,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.lynxengine.app.data.GameEntry
 import com.lynxengine.app.ui.components.ToolItem
 import com.lynxengine.app.ui.theme.LynxGreen
 import com.lynxengine.app.ui.theme.LynxRed
@@ -34,7 +33,7 @@ import java.io.File
 import java.io.FileOutputStream
 
 // ── Navigation within Tools ───────────────────────────────────────────────────
-private enum class ToolsPage { MAIN, PLAY_INTEGRITY, HIDE_DEV, GAME_UNLOCKER }
+private enum class ToolsPage { MAIN, PLAY_INTEGRITY, HIDE_DEV }
 
 @Composable
 fun ToolsScreen(
@@ -50,10 +49,7 @@ fun ToolsScreen(
     onDismissPrintPif: () -> Unit,
     onAddHideDevApps: (Set<String>) -> Unit,
     onRemoveHideDevApp: (String) -> Unit,
-    onRefreshHideDevApps: () -> Unit,
-    onToggleGameUnlocker: (Boolean) -> Unit,
-    onAddGameEntry: (GameEntry) -> Unit,
-    onRemoveGameEntry: (String) -> Unit
+    onRefreshHideDevApps: () -> Unit
 ) {
     var page by remember { mutableStateOf(ToolsPage.MAIN) }
 
@@ -61,8 +57,7 @@ fun ToolsScreen(
         ToolsPage.MAIN -> ToolsMainPage(
             uiState             = uiState,
             onOpenPlayIntegrity = { page = ToolsPage.PLAY_INTEGRITY },
-            onOpenHideDev       = { page = ToolsPage.HIDE_DEV },
-            onOpenGameUnlocker  = { page = ToolsPage.GAME_UNLOCKER }
+            onOpenHideDev       = { page = ToolsPage.HIDE_DEV }
         )
         ToolsPage.PLAY_INTEGRITY -> PlayIntegrityPage(
             uiState           = uiState,
@@ -84,13 +79,6 @@ fun ToolsScreen(
             onRemoveHideDevApp   = onRemoveHideDevApp,
             onRefreshHideDevApps = onRefreshHideDevApps
         )
-        ToolsPage.GAME_UNLOCKER -> GameUnlockerPage(
-            uiState          = uiState,
-            onBack           = { page = ToolsPage.MAIN },
-            onToggleEnabled  = onToggleGameUnlocker,
-            onAddGame        = onAddGameEntry,
-            onRemoveGame     = onRemoveGameEntry
-        )
     }
 }
 
@@ -99,8 +87,7 @@ fun ToolsScreen(
 private fun ToolsMainPage(
     uiState: LynxUiState,
     onOpenPlayIntegrity: () -> Unit,
-    onOpenHideDev: () -> Unit,
-    onOpenGameUnlocker: () -> Unit
+    onOpenHideDev: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -172,40 +159,6 @@ private fun ToolsMainPage(
             }
         }
 
-        // Card 3 — Game Unlocker
-        Card(
-            modifier = Modifier.fillMaxWidth().clickable { onOpenGameUnlocker() },
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-        ) {
-            Row(
-                modifier = Modifier.padding(20.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Icon(Icons.Default.SportsEsports, null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(32.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Game Unlocker", fontWeight = FontWeight.Bold, fontSize = 16.sp,
-                        color = MaterialTheme.colorScheme.onSurface)
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        when {
-                            !uiState.gameUnlockerEnabled -> "Disabled"
-                            uiState.gameUnlockerGames.isEmpty() -> "Enabled — no games yet"
-                            else -> "${uiState.gameUnlockerGames.size} game(s) unlocked"
-                        },
-                        fontSize = 12.sp,
-                        color = if (uiState.gameUnlockerEnabled && uiState.gameUnlockerGames.isNotEmpty())
-                                    LynxGreen
-                                else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Icon(Icons.Default.ChevronRight, null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
     }
 }
 

@@ -166,10 +166,7 @@ fun LynxApp(viewModel: LynxViewModel) {
                             onDismissPrintPif    = viewModel::dismissPrintPifDialog,
                             onAddHideDevApps     = viewModel::addHideDevApps,
                             onRemoveHideDevApp   = viewModel::removeHideDevApp,
-                            onRefreshHideDevApps = viewModel::forceStopHideDevApps,
-                            onToggleGameUnlocker = viewModel::toggleGameUnlocker,
-                            onAddGameEntry       = viewModel::addGameEntry,
-                            onRemoveGameEntry    = viewModel::removeGameEntry
+                            onRefreshHideDevApps = viewModel::forceStopHideDevApps
                         )
                     }
                 }
@@ -178,9 +175,7 @@ fun LynxApp(viewModel: LynxViewModel) {
                         SettingsScreen(
                             uiState           = uiState,
                             onToggleAutoUpdate = viewModel::setAutoUpdateEnabled,
-                            onSetInterval      = viewModel::setAutoUpdateInterval,
-                            onEnableRootMode   = viewModel::enableRootMode,
-                            onDisableRootMode  = viewModel::disableRootMode
+                            onSetInterval      = viewModel::setAutoUpdateInterval
                         )
                     }
                 }
