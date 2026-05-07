@@ -1,5 +1,7 @@
 package com.lynxengine.app.ui.screens
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -11,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -22,7 +25,8 @@ import com.lynxengine.app.viewmodel.LynxUiState
 fun SettingsScreen(
     uiState: LynxUiState,
     onToggleAutoUpdate: (Boolean) -> Unit,
-    onSetInterval: (Int) -> Unit
+    onSetInterval: (Int) -> Unit,
+    onBack: (() -> Unit)? = null
 ) {
     val isDark = isSystemInDarkTheme()
 
@@ -33,6 +37,32 @@ fun SettingsScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+
+        // ── Back button (when opened from top bar) ────────────────────────
+        if (onBack != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable { onBack() }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.ArrowBack, null,
+                    tint     = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    "Settings",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize   = 16.sp,
+                    color      = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
 
         // ── App info card ─────────────────────────────────────────────────
         Card(

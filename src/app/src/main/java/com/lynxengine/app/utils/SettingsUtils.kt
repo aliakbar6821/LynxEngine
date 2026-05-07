@@ -5,8 +5,9 @@ import android.provider.Settings
 
 object SettingsUtils {
 
-    private const val KEY_PIF    = "lynx_pif_data"
-    private const val KEY_KEYBOX = "lynx_keybox_data"
+    private const val KEY_PIF          = "lynx_pif_data"
+    private const val KEY_KEYBOX       = "lynx_keybox_data"
+    private const val KEY_VBMETA_DIGEST = "lynx_vbmeta_digest"
 
     // ── PIF / Keybox — always via Settings.Secure ─────────────────────────
     fun getPifData(context: Context): String? =
@@ -38,7 +39,19 @@ object SettingsUtils {
     }.getOrDefault(false)
 
     fun clearAll(context: Context): Boolean =
-        clearPifData(context) && clearKeyboxData(context)
+        clearPifData(context) && clearKeyboxData(context) && clearVbmetaDigest(context)
+
+    // ── Vbmeta Digest ─────────────────────────────────────────────────────
+    fun getVbmetaDigest(context: Context): String? =
+        Settings.Secure.getString(context.contentResolver, KEY_VBMETA_DIGEST)
+
+    fun setVbmetaDigest(context: Context, hex: String): Boolean = runCatching {
+        Settings.Secure.putString(context.contentResolver, KEY_VBMETA_DIGEST, hex)
+    }.getOrDefault(false)
+
+    fun clearVbmetaDigest(context: Context): Boolean = runCatching {
+        Settings.Secure.putString(context.contentResolver, KEY_VBMETA_DIGEST, null)
+    }.getOrDefault(false)
 
     // ── Hide Developer Status ─────────────────────────────────────────────
     private const val KEY_HIDE_DEV = "lynx_hide_dev_status"

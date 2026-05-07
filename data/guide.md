@@ -1,195 +1,33 @@
-# LynxEngine — Complete Integration Guide
+# LynxEngine — Integration Guide
 
-This guide covers everything needed to integrate LynxEngine into a ROM or use it as a root module.
+Patch `framework.jar`, add the DEX classes, install the app. That's it.
 
 ---
 
 ## Table of Contents
 
-1. [Architecture Overview](#architecture-overview)
-2. [Method A — Baked into ROM (no root)](#method-a--baked-into-rom-no-root)
-3. [Method B — Root Module (KSU / Magisk)](#method-b--root-module-ksu--magisk)
-4. [Framework.jar Smali Patches](#frameworkjar-smali-patches)
+1. [How It Works](#how-it-works)
+2. [Step 1 — Patch Framework.jar](#step-1--patch-frameworkjar)
+3. [Step 2 — Add DEX Classes](#step-2--add-dex-classes)
+4. [Step 3 — Install the App](#step-3--install-the-app)
 5. [Troubleshooting](#troubleshooting)
 
 ---
 
-## Architecture Overview
-
-LynxEngine has three layers:
+## How It Works
 
 | Layer | What it does |
 |---|---|
 | **Smali hooks** in `framework.jar` | Intercept `Instrumentation`, `KeyStore2`, `Settings$Global/Secure` at boot |
-| **`/data/misc/lynx/game_data.json`** | Shared game spoof config — written by app, read by hook |
-| **LynxEngine APK** | Control panel — manages PIF, keybox, game profiles |
+| **LynxEngine APK** | Manages PIF and keybox data via `Settings.Secure` |
 
-The smali hook reads `game_data.json` via `FileInputStream` — no Binder, no IPC, works in isolated processes (COD Mobile, Unreal engine games, etc.).
-
----
-
-## Method A — Baked into ROM (no root)
-
-Use this if you are building or distributing a custom ROM. Zero root required at runtime.
-
-### Step 1 — Apply framework.jar smali patches
-
-Follow the [Framework.jar Smali Patches](#frameworkjar-smali-patches) section below.
-Compile the patched smali back into `framework.jar` using MT Manager / baksmali / smali.
-
-### Step 2 — Add DEX classes
-
-Place the LynxEngine DEX (`classes7.dex` or merged into existing dex) inside `framework.jar`.
-The classes live under `com/android/internal/util/lynx/`.
-
-### Step 3 — Create init script
-
-Create `system/etc/init/lynx.rc`:
-
-```rc
-on post-fs-data
-    mkdir /data/misc/lynx 0771 system system
-    restorecon_recursive /data/misc/lynx
-```
-
-> `mkdir` in init.rc is safe to run on every boot — if the directory already exists it does nothing. Your `game_data.json` survives reboots.
-
-### Step 4 — Add SELinux file label
-
-Append to `system/etc/selinux/plat_file_contexts`:
-
-```
-/data/misc/lynx(/.*)?    u:object_r:lynx_data_file:s0
-```
-
-### Step 5 — Add SELinux policy
-
-Append to `system/etc/selinux/plat_sepolicy.cil`:
-
-```cil
-(type lynx_data_file)
-(typeattributeset file_type (lynx_data_file))
-(typeattributeset data_file_type (lynx_data_file))
-(allow system_app lynx_data_file (dir (create write add_name search)))
-(allow system_app lynx_data_file (file (create write open read getattr)))
-(allow untrusted_app lynx_data_file (dir (search)))
-(allow untrusted_app lynx_data_file (file (read open getattr)))
-(allow isolated_app lynx_data_file (dir (search)))
-(allow isolated_app lynx_data_file (file (read open getattr)))
-```
-
-> Note: CIL syntax is required here — `.te` syntax does not work in `plat_sepolicy.cil`.
-
-### Step 6 — Install the app as priv-app
-
-Place `LynxEngine.apk` in `system/priv-app/LynxEngine/`.
-
-Add `system/etc/permissions/privapp-permissions-lynx.xml`:
-
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<permissions>
-    <privapp-permissions package="com.lynxengine.app">
-
-        <!-- Core settings control -->
-        <permission name="android.permission.WRITE_SECURE_SETTINGS"/>
-        <permission name="android.permission.WRITE_SETTINGS"/>
-
-        <!-- Storage -->
-        <permission name="android.permission.READ_EXTERNAL_STORAGE"/>
-        <permission name="android.permission.WRITE_EXTERNAL_STORAGE"/>
-        <permission name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
-        
-        <!-- Internet -->
-        <permission name="android.permission.INTERNET"/>
-        <permission name="android.permission.ACCESS_NETWORK_STATE"/>
-        
-        <!-- Force stop-->
-        <permission name="android.permission.FORCE_STOP_PACKAGES"/>
-        <permission name="android.permission.KILL_BACKGROUND_PROCESSES"/>
-
-        <!-- Query -->
-        <permission name="android.permission.QUERY_ALL_PACKAGES"/>
-    </privapp-permissions>
-</permissions>
-```
-
-### Step 7 — Open app, leave Root Access OFF
-
-In the LynxEngine app → Settings → Root Access switch must be **OFF**.
-The app writes `game_data.json` directly using its own process context (system_app).
+No root required. PIF and keybox are stored in `Settings.Secure` and read by the hooks at runtime.
 
 ---
 
-## Method B — Root Module (KSU / Magisk)
+## Step 1 — Patch Framework.jar
 
-Use this if you want to distribute LynxEngine as a flashable module, or if you cannot modify the ROM directly. Requires KernelSU or Magisk with root access.
-
-### Step 1 — Module structure
-
-Your module zip should contain:
-
-```
-META-INF/
-  com/google/android/
-    update-binary
-    updater-script
-system/
-  framework/
-    framework.jar          ← patched framework.jar
-  priv-app/
-    LynxEngine/
-      LynxEngine.apk
-  etc/
-    permissions/
-      privapp-permissions-lynx.xml
-```
-
-> No need for `init.rc`, `file_contexts`, or `sepolicy.cil` in the module — root bypasses SELinux for file operations.
-
-### Step 2 — Apply framework.jar smali patches
-
-Same as Method A — follow the [Framework.jar Smali Patches](#frameworkjar-smali-patches) section.
-Include the patched `framework.jar` in the module's `system/framework/`.
-
-### Step 3 — Flash the module
-
-Flash via KSU Manager or Magisk Manager.
-Reboot.
-
-### Step 4 — Enable Root Access in the app
-
-Open LynxEngine → Settings → **Root Access** switch → toggle ON.
-
-The app will:
-1. Detect KSU or Magisk
-2. Run a write test to `/data/misc/lynx/`
-3. Show "Root access granted (KernelSU)" or "Root access granted (Magisk)"
-4. Save the preference
-
-From this point, all game profile saves use root shell — no SELinux policy needed.
-
-### Step 5 — Verify
-
-Add a game profile in the Game Unlocker screen.
-Launch the game, check logcat:
-
-```bash
-adb logcat -s LynxGameHooks:V
-```
-
-You should see:
-```
-D LynxGameHooks: Spoofing Build props for game: com.your.game
-D LynxGameHooks: Set prop BRAND -> asus
-D LynxGameHooks: Set prop MODEL -> ASUS_AI2201
-```
-
----
-
-## Framework.jar Smali Patches
-
-All patches go inside `framework.jar`. The LynxEngine DEX must also be merged into it.
+Decompile `framework.jar` using baksmali, apply the patches below, then recompile with smali or MT Manager.
 
 ---
 
@@ -206,8 +44,6 @@ invoke-virtual {p0, p1}, Landroid/app/Application;->attach(Landroid/content/Cont
 Add immediately after:
 ```smali
 invoke-static {p1}, Lcom/android/internal/util/lynx/LynxPropHooks;->setProps(Landroid/content/Context;)V
-
-invoke-static {p1}, Lcom/android/internal/util/lynx/LynxGameHooks;->setGameProps(Landroid/content/Context;)V
 ```
 
 **Method 2:** `newApplication(Ljava/lang/ClassLoader;Ljava/lang/String;Landroid/content/Context;)Landroid/app/Application;`
@@ -219,8 +55,6 @@ invoke-virtual {p1, p3}, Landroid/app/Application;->attach(Landroid/content/Cont
 Add immediately after:
 ```smali
 invoke-static {p3}, Lcom/android/internal/util/lynx/LynxPropHooks;->setProps(Landroid/content/Context;)V
-
-invoke-static {p3}, Lcom/android/internal/util/lynx/LynxGameHooks;->setGameProps(Landroid/content/Context;)V
 ```
 
 ---
@@ -300,14 +134,8 @@ Find:
 ```smali
 invoke-virtual {p0}, Landroid/content/ContentResolver;->getPackageName()Ljava/lang/String;
 ```
-Find the next line:
-```smali
-move-result-object p0
-```
-Replace with:
-```smali
-move-result-object v0
-```
+Next line `move-result-object p0` → `move-result-object v0`.
+
 Add after:
 ```smali
 invoke-static {p0, v0, p1}, Lcom/android/internal/util/lynx/LynxHideDevUtils;->shouldHideDeveloperStatus(Landroid/content/ContentResolver;Ljava/lang/String;Ljava/lang/String;)Z
@@ -326,7 +154,7 @@ Then find:
 ```smali
 invoke-static {p0, p1}, Landroid/provider/Settings$Global;->getString(Landroid/content/ContentResolver;Ljava/lang/String;)Ljava/lang/String;
 ```
-Next line `move-result-object p0` → replace with `move-result-object v0`.
+Next line `move-result-object p0` → `move-result-object v0`.
 
 Then find:
 ```smali
@@ -336,8 +164,7 @@ Replace with:
 ```smali
 invoke-static {v0, p1}, Landroid/provider/Settings;->-$$Nest$smparseIntSetting(Ljava/lang/String;Ljava/lang/String;)I
 ```
-Next line `move-result p0` → `move-result v0`.
-Then `return p0` → `return v0`.
+Next line `move-result p0` → `move-result v0`. Then `return p0` → `return v0`.
 
 ---
 
@@ -379,8 +206,7 @@ Replace with:
 ```smali
 invoke-static {v0, p2}, Landroid/provider/Settings;->-$$Nest$smparseIntSettingWithDefault(Ljava/lang/String;I)I
 ```
-Next line `move-result p0` → `move-result v0`.
-Then `return p0` → `return v0`.
+Next line `move-result p0` → `move-result v0`. Then `return p0` → `return v0`.
 
 ---
 
@@ -426,55 +252,118 @@ Replace with:
 ```smali
 invoke-static {v0, p1}, Landroid/provider/Settings;->-$$Nest$smparseIntSetting(Ljava/lang/String;Ljava/lang/String;)I
 ```
-Next line `move-result p0` → `move-result v0`.
-Then `return p0` → `return v0`.
+Next line `move-result p0` → `move-result v0`. Then `return p0` → `return v0`.
+
+---
+
+### Patch 6 — SystemProperties
+
+This patch intercepts `SystemProperties.get()` so that any code reading partition fingerprints or other derived build properties directly — bypassing the `Build` class cache — gets the spoofed values.
+
+**Class:** `Landroid/os/SystemProperties;`
+
+**Method 1:** `get(Ljava/lang/String;)Ljava/lang/String;`
+
+At the very start of the method, before any existing code:
+```smali
+invoke-static {p0}, Lcom/android/internal/util/lynx/LynxSysPropHooks;->getOverride(Ljava/lang/String;)Ljava/lang/String;
+
+move-result-object v0
+
+if-eqz v0, :skip_lynx_sysprop
+
+return-object v0
+
+:skip_lynx_sysprop
+```
+
+**Method 2:** `get(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;`
+
+At the very start of the method, before any existing code:
+```smali
+invoke-static {p0, p1}, Lcom/android/internal/util/lynx/LynxSysPropHooks;->getOverride(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+
+move-result-object v0
+
+if-eqz v0, :skip_lynx_sysprop
+
+return-object v0
+
+:skip_lynx_sysprop
+```
+
+> The hook returns `null` for any key not in its map, so all other system property reads are completely unaffected. The map is only populated after LynxEngine's PIF has been loaded — reads before that fall through normally.
+
+Properties intercepted by this hook:
+
+| Property | Value |
+|---|---|
+| `ro.build.fingerprint` | full fingerprint |
+| `ro.vendor.build.fingerprint` | full fingerprint |
+| `ro.product.build.fingerprint` | full fingerprint |
+| `ro.system.build.fingerprint` | full fingerprint |
+| `ro.bootimage.build.fingerprint` | full fingerprint |
+| `ro.odm.build.fingerprint` | full fingerprint |
+| `ro.vendor_dlkm.build.fingerprint` | full fingerprint |
+| `ro.build.display.id` | ID segment from fingerprint |
+| `ro.build.version.incremental` | incremental segment |
+| `ro.product.name` | product segment |
+| `ro.build.flavor` | `product-type` |
+| `ro.build.user` | `android-build` |
+| `ro.build.host` | `abfarm-rbe-corp` |
+| `ro.build.description` | `product-type release ID incremental tags` |
+
+---
+
+## Step 2 — Add DEX Classes
+
+Place the LynxEngine DEX (`classes7.dex`, or merged into an existing dex) inside `framework.jar`. All classes live under `com/android/internal/util/lynx/`.
+
+---
+
+## Step 3 — Install the App
+
+Place `LynxEngine.apk` in `system/priv-app/LynxEngine/`.
+
+Add `system/etc/permissions/privapp-permissions-lynx.xml`:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<permissions>
+    <privapp-permissions package="com.lynxengine.app">
+        <permission name="android.permission.WRITE_SECURE_SETTINGS"/>
+        <permission name="android.permission.WRITE_SETTINGS"/>
+        <permission name="android.permission.READ_EXTERNAL_STORAGE"/>
+        <permission name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+        <permission name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
+        <permission name="android.permission.INTERNET"/>
+        <permission name="android.permission.ACCESS_NETWORK_STATE"/>
+        <permission name="android.permission.FORCE_STOP_PACKAGES"/>
+        <permission name="android.permission.KILL_BACKGROUND_PROCESSES"/>
+        <permission name="android.permission.QUERY_ALL_PACKAGES"/>
+    </privapp-permissions>
+</permissions>
+```
 
 ---
 
 ## Troubleshooting
 
-### Game spoof not applying
-
-```bash
-adb logcat -s LynxGameHooks:V
-```
-
-| Log output | Cause | Fix |
-|---|---|---|
-| `Spoofing Build props for game: x` but no FPS unlock | Props applied but game uses native check | Ensure all 6 props are set in profile |
-| `Failed to read game_data.json` | File missing or SELinux denied | Check file exists; check Method A SELinux steps; or enable Root Mode |
-| `SecurityException: Isolated process` | Old Settings.Secure path still compiled in | Ensure you are using the latest `LynxGameHooks.smali` |
-| Nothing in logcat | Hook not injected | Verify Patch 1 was applied to both Instrumentation methods |
-
-### Root mode not granting access
-
-- Confirm KSU or Magisk is installed and app has been granted root in the manager
-- Try manually: `adb shell su -c "mkdir -p /data/misc/lynx"`
-- If it fails, the su binary is restricted — grant root to LynxEngine in KSU/Magisk manager
-
-### SELinux denials (Method A / ROM mode)
-
-```bash
-adb shell dmesg | grep lynx
-adb logcat | grep avc
-```
-
-If you see `avc: denied` for `lynx_data_file`, the `plat_sepolicy.cil` block was not appended correctly or `restorecon` did not run. Verify:
-
-```bash
-adb shell ls -lZ /data/misc/lynx/
-```
-
-The label should show `u:object_r:lynx_data_file:s0`. If it shows `u:object_r:system_data_file:s0`, run:
-
-```bash
-adb shell su -c "restorecon -R /data/misc/lynx/"
-```
-
 ### Framework integration not detected
 
-The app checks `Settings.Secure` for `lynx_pif_data` to confirm framework hooks are active. If the home screen shows "Not Integrated":
+The app checks `Settings.Secure` for `lynx_pif_data` to confirm hooks are active. If the home screen shows "Not Integrated":
 
-1. Confirm `framework.jar` was correctly repackaged
-2. Confirm the DEX classes are present: `classes7.dex` or merged dex
-3. Check logcat for `LynxPropHooks` tag on any app launch
+1. Confirm `framework.jar` was correctly repackaged and the DEX classes are present
+2. Check logcat for the `LynxPropHooks` tag on any app launch:
+   ```bash
+   adb logcat -s LynxPropHooks:V
+   ```
+3. Load PIF and keybox manually via adb then reopen the app:
+   ```bash
+   settings put secure lynx_pif_data <json>
+   settings put secure lynx_keybox_data <xml>
+   ```
+
+### Hide Developer Options not working
+
+Check that Patch 4 and Patch 5 were applied to all three methods. Add an app in the Hide Developer Options screen, force-stop it, then relaunch — the setting is read fresh on each `getInt` call.

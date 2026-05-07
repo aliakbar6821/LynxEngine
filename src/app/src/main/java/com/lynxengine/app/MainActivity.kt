@@ -6,13 +6,19 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -40,11 +46,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Tab(val label: String, val icon: ImageVector) {
-    HOME("Home", Icons.Default.Home),
-    TOOLS("Tools", Icons.Default.Build),
-    SETTINGS("Settings", Icons.Default.Settings)
-}
+private enum class Tab { HOME, TOOLS }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -116,70 +118,234 @@ fun LynxApp(viewModel: LynxViewModel) {
         )
     }
 
+    var showSettings by remember { mutableStateOf(false) }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        topBar = {
-            TopAppBar(
-                title = { Text("Lynx Engine") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor    = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                )
+        topBar    = {
+            LynxTopBar(
+                onRefresh       = viewModel::refresh,
+                onOpenSettings  = { showSettings = true }
             )
         },
         bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 3.dp
-            ) {
-                val availableTabs = if (uiState.isFrameworkIntegrated) Tab.entries else listOf(Tab.HOME)
-                availableTabs.forEach { tab ->
-                    NavigationBarItem(
-                        selected = selectedTab == tab,
-                        onClick  = { selectedTab = tab },
-                        icon     = { Icon(tab.icon, tab.label) },
-                        label    = { Text(tab.label) }
-                    )
-                }
+            if (!showSettings) {
+                LynxBottomNav(
+                    selectedTab  = selectedTab,
+                    integrated   = uiState.isFrameworkIntegrated,
+                    onSelectTab  = { selectedTab = it }
+                )
             }
         }
     ) { innerPadding ->
-        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-            when (selectedTab) {
-                Tab.HOME -> HomeScreen(
+        Box(modifier = Modifier
+            .fillMaxSize()
+            .padding(innerPadding)
+        ) {
+            when {
+                showSettings -> SettingsScreen(
+                    uiState            = uiState,
+                    onToggleAutoUpdate = viewModel::setAutoUpdateEnabled,
+                    onSetInterval      = viewModel::setAutoUpdateInterval,
+                    onBack             = { showSettings = false }
+                )
+                selectedTab == Tab.HOME -> HomeScreen(
                     uiState      = uiState,
                     onRefresh    = viewModel::refresh,
                     isIntegrated = uiState.isFrameworkIntegrated
                 )
-                Tab.TOOLS -> {
-                    if (uiState.isFrameworkIntegrated) {
-                        ToolsScreen(
-                            uiState              = uiState,
-                            onLoadPif            = viewModel::loadPif,
-                            onLoadKeybox         = viewModel::loadKeybox,
-                            onRefresh            = viewModel::refresh,
-                            onClearAll           = viewModel::clearAll,
-                            onAutoUpdate         = viewModel::performAutoUpdate,
-                            onExportPif          = viewModel::exportPifToUri,
-                            onExportKeybox       = viewModel::exportKeyboxToUri,
-                            onShowPrintPif       = viewModel::showPrintPif,
-                            onDismissPrintPif    = viewModel::dismissPrintPifDialog,
-                            onAddHideDevApps     = viewModel::addHideDevApps,
-                            onRemoveHideDevApp   = viewModel::removeHideDevApp,
-                            onRefreshHideDevApps = viewModel::forceStopHideDevApps
-                        )
-                    }
+                selectedTab == Tab.TOOLS && uiState.isFrameworkIntegrated -> ToolsScreen(
+                    uiState              = uiState,
+                    onLoadPif            = viewModel::loadPif,
+                    onLoadKeybox         = viewModel::loadKeybox,
+                    onRefresh            = viewModel::refresh,
+                    onClearAll           = viewModel::clearAll,
+                    onAutoUpdate         = viewModel::performAutoUpdate,
+                    onExportPif          = viewModel::exportPifToUri,
+                    onExportKeybox       = viewModel::exportKeyboxToUri,
+                    onShowPrintPif       = viewModel::showPrintPif,
+                    onDismissPrintPif    = viewModel::dismissPrintPifDialog,
+                    onAddHideDevApps     = viewModel::addHideDevApps,
+                    onRemoveHideDevApp   = viewModel::removeHideDevApp,
+                    onRefreshHideDevApps = viewModel::forceStopHideDevApps
+                )
+            }
+        }
+    }
+}
+
+// ── Custom Top Bar ────────────────────────────────────────────────────────────
+@Composable
+private fun LynxTopBar(
+    onRefresh:      () -> Unit,
+    onOpenSettings: () -> Unit
+) {
+    val surface  = MaterialTheme.colorScheme.surface
+    val outline  = MaterialTheme.colorScheme.outlineVariant
+    val primary  = MaterialTheme.colorScheme.primary
+    val onSurface = MaterialTheme.colorScheme.onSurface
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color    = MaterialTheme.colorScheme.background,
+        tonalElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+                .statusBarsPadding(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Logo tile
+            Box(
+                modifier = Modifier
+                    .size(46.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(surface)
+                    .border(1.dp, outline, RoundedCornerShape(14.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Adb,
+                    contentDescription = "LynxEngine Logo",
+                    tint    = primary,
+                    modifier = Modifier.size(26.dp)
+                )
+            }
+
+            // App name pill — fills remaining space
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(46.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(surface)
+                    .border(1.dp, outline, RoundedCornerShape(14.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text       = "Lynx Engine",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize   = 16.sp,
+                    color      = onSurface
+                )
+            }
+
+            // Refresh button tile
+            Box(
+                modifier = Modifier
+                    .size(46.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(surface)
+                    .border(1.dp, outline, RoundedCornerShape(14.dp))
+                    .clickable { onRefresh() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector        = Icons.Default.Refresh,
+                    contentDescription = "Refresh",
+                    tint               = onSurface,
+                    modifier           = Modifier.size(22.dp)
+                )
+            }
+
+            // Settings button tile
+            Box(
+                modifier = Modifier
+                    .size(46.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(surface)
+                    .border(1.dp, outline, RoundedCornerShape(14.dp))
+                    .clickable { onOpenSettings() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector        = Icons.Default.Settings,
+                    contentDescription = "Settings",
+                    tint               = onSurface,
+                    modifier           = Modifier.size(22.dp)
+                )
+            }
+        }
+    }
+}
+
+// ── Custom Bottom Nav ─────────────────────────────────────────────────────────
+@Composable
+private fun LynxBottomNav(
+    selectedTab: Tab,
+    integrated:  Boolean,
+    onSelectTab: (Tab) -> Unit
+) {
+    val surface  = MaterialTheme.colorScheme.surface
+    val outline  = MaterialTheme.colorScheme.outlineVariant
+    val primary  = MaterialTheme.colorScheme.primary
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    val disabled  = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color    = MaterialTheme.colorScheme.background,
+        tonalElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+                .navigationBarsPadding(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            val tabs = listOf(Tab.HOME to "Home", Tab.TOOLS to "Tools")
+
+            tabs.forEach { (tab, label) ->
+                val isSelected  = selectedTab == tab
+                val isEnabled   = tab == Tab.HOME || integrated
+                val borderColor = if (isSelected) primary else outline
+                val textColor   = when {
+                    isSelected -> primary
+                    !isEnabled -> disabled
+                    else       -> onSurface
                 }
-                Tab.SETTINGS -> {
-                    if (uiState.isFrameworkIntegrated) {
-                        SettingsScreen(
-                            uiState           = uiState,
-                            onToggleAutoUpdate = viewModel::setAutoUpdateEnabled,
-                            onSetInterval      = viewModel::setAutoUpdateInterval
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(46.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (isSelected) primary.copy(alpha = 0.08f) else surface)
+                        .border(
+                            width = if (isSelected) 1.5.dp else 1.dp,
+                            color = borderColor,
+                            shape = RoundedCornerShape(14.dp)
                         )
+                        .then(
+                            if (isEnabled) Modifier.clickable { onSelectTab(tab) }
+                            else Modifier
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text       = label,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            fontSize   = 14.sp,
+                            color      = textColor
+                        )
+                        // Active indicator line
+                        if (isSelected) {
+                            Spacer(Modifier.height(3.dp))
+                            Box(
+                                modifier = Modifier
+                                    .width(24.dp)
+                                    .height(2.dp)
+                                    .clip(RoundedCornerShape(1.dp))
+                                    .background(primary)
+                            )
+                        }
                     }
                 }
             }
         }
     }
-}

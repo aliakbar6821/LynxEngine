@@ -3,6 +3,7 @@ package com.lynxengine.app.data
 import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.JsonParser
+import com.lynxengine.app.utils.KeyboxCertParser
 import com.lynxengine.app.utils.SettingsUtils
 import java.io.File
 
@@ -97,6 +98,17 @@ class LynxRepository(private val context: Context) {
         validateKeyboxText(content)
         val ok = SettingsUtils.setKeyboxData(context, content)
         require(ok) { "Failed to write Settings.Secure" }
+
+        // Extract verifiedBootHash from the leaf cert and store separately.
+        // The smali hook reads this key to spoof ro.boot.vbmeta.digest so that
+        // the attested hash and the live system property match.
+        val hash = KeyboxCertParser.extractVerifiedBootHash(content)
+        if (hash != null) {
+            SettingsUtils.setVbmetaDigest(context, hash)
+        } else {
+            // Non-fatal — clear any stale value so the hook returns nothing
+            SettingsUtils.clearVbmetaDigest(context)
+        }
     }
 
     // ── Load from File ────────────────────────────────────────────────────
