@@ -349,3 +349,4 @@ private fun LynxBottomNav(
             }
         }
     }
+}
