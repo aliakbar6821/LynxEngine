@@ -1,5 +1,6 @@
 package com.lynxengine.app.utils
 
+import android.util.Base64
 import android.util.Log
 import org.w3c.dom.Element
 import java.io.ByteArrayInputStream
@@ -7,199 +8,297 @@ import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import javax.xml.parsers.DocumentBuilderFactory
 
-/**
- * Extracts verifiedBootHash from the leaf certificate inside a keybox XML.
- *
- * The leaf cert (first <Certificate> in the chain) contains a KeyDescription
- * extension (OID 1.3.6.1.4.1.11129.2.1.17) with a RootOfTrust sequence:
- *
- *   RootOfTrust ::= SEQUENCE {
- *       verifiedBootKey   OCTET STRING,
- *       deviceLocked      BOOLEAN,
- *       verifiedBootState ENUMERATED,
- *       verifiedBootHash  OCTET STRING   ← what we need
- *   }
- *
- * The result is a lowercase hex string — the same format used in
- * ro.boot.vbmeta.digest — so the two values will match exactly.
- */
 object KeyboxCertParser {
 
     private const val TAG = "KeyboxCertParser"
+    private const val KEY_DESCRIPTION_OID = "1.3.6.1.4.1.11129.2.1.17"
 
-    // OID for Android KeyDescription extension: 1.3.6.1.4.1.11129.2.1.17
-    private val KEY_DESCRIPTION_OID = "1.3.6.1.4.1.11129.2.1.17"
-
-    // ASN.1 tags
-    private const val TAG_SEQUENCE  = 0x30
-    private const val TAG_OCTET     = 0x04
-    private const val TAG_BOOLEAN   = 0x01
-    private const val TAG_ENUM      = 0x0A
-    private const val TAG_INTEGER   = 0x02
-
-    /**
-     * Entry point. Returns the verifiedBootHash hex string, or null on any failure.
-     */
     fun extractVerifiedBootHash(keyboxXml: String): String? {
         return runCatching {
-            val leafPem = extractLeafCertPem(keyboxXml) ?: return null
-            val cert    = parseCert(leafPem)            ?: return null
-            extractHashFromCert(cert)
+            val pem = extractLeafCertPem(keyboxXml) ?: run {
+                Log.e(TAG, "No leaf cert found in keybox")
+                return null
+            }
+            val cert = parseCert(pem) ?: run {
+                Log.e(TAG, "Failed to parse leaf cert")
+                return null
+            }
+            val hash = extractHashBouncyCastle(cert)
+            if (hash != null) {
+                Log.d(TAG, "Extracted verifiedBootHash: $hash")
+            } else {
+                Log.e(TAG, "Failed to extract hash from cert extension")
+            }
+            hash
         }.onFailure {
-            Log.e(TAG, "Failed to extract verifiedBootHash", it)
+            Log.e(TAG, "extractVerifiedBootHash failed", it)
         }.getOrNull()
     }
-
-    // ── Step 1: pull the first <Certificate> PEM out of the XML ──────────
 
     private fun extractLeafCertPem(xml: String): String? {
         val doc = DocumentBuilderFactory.newInstance()
             .newDocumentBuilder()
             .parse(ByteArrayInputStream(xml.toByteArray(Charsets.UTF_8)))
-
         doc.documentElement.normalize()
-
         val certs = doc.getElementsByTagName("Certificate")
-        if (certs.length == 0) {
-            Log.e(TAG, "No <Certificate> elements found")
-            return null
-        }
-
-        // First certificate in the chain is the leaf / device cert
-        val pem = (certs.item(0) as? Element)?.textContent?.trim()
-        if (pem.isNullOrBlank()) {
-            Log.e(TAG, "Leaf certificate element is empty")
-            return null
-        }
-
-        return pem
+        if (certs.length == 0) return null
+        return (certs.item(0) as? Element)?.textContent?.trim()
     }
 
-    // ── Step 2: decode PEM → X509Certificate ─────────────────────────────
-
     private fun parseCert(pem: String): X509Certificate? {
-        // Strip PEM headers and decode base64
         val base64 = pem
             .replace("-----BEGIN CERTIFICATE-----", "")
             .replace("-----END CERTIFICATE-----", "")
             .replace("\\s".toRegex(), "")
-
-        val der = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
-
-        val factory = CertificateFactory.getInstance("X.509")
-        return factory.generateCertificate(ByteArrayInputStream(der)) as? X509Certificate
+        val der = Base64.decode(base64, Base64.DEFAULT)
+        return CertificateFactory.getInstance("X.509")
+            .generateCertificate(ByteArrayInputStream(der)) as? X509Certificate
     }
 
-    // ── Step 3: find KeyDescription extension, walk ASN.1 ────────────────
-
-    private fun extractHashFromCert(cert: X509Certificate): String? {
-        val extBytes = cert.getExtensionValue(KEY_DESCRIPTION_OID)
-        if (extBytes == null) {
-            Log.e(TAG, "KeyDescription extension not found in leaf cert")
+    // ── BouncyCastle-style ASN.1 walking ─────────────────────────────────────
+    private fun extractHashBouncyCastle(cert: X509Certificate): String? {
+        // getExtensionValue returns DER-encoded OCTET STRING wrapping the extension value
+        val extBytes = cert.getExtensionValue(KEY_DESCRIPTION_OID) ?: run {
+            Log.e(TAG, "KeyDescription extension not found (OID $KEY_DESCRIPTION_OID)")
             return null
         }
 
-        // getExtensionValue wraps the value in an OCTET STRING — unwrap it
-        val inner = unwrapOctetString(extBytes) ?: return null
+        Log.d(TAG, "Extension raw bytes length: ${extBytes.size}")
 
-        // Now we have the raw KeyDescription SEQUENCE. Walk into it to find RootOfTrust.
-        val rootOfTrust = findRootOfTrust(inner) ?: return null
+        // Unwrap outer OCTET STRING (tag 0x04)
+        val inner = unwrapOctetString(extBytes) ?: run {
+            Log.e(TAG, "Failed to unwrap outer OCTET STRING")
+            return null
+        }
 
-        // RootOfTrust ::= SEQUENCE {
-        //   verifiedBootKey   [0] OCTET STRING,
-        //   deviceLocked      [1] BOOLEAN,
-        //   verifiedBootState [2] ENUMERATED,
-        //   verifiedBootHash  [3] OCTET STRING   ← index 3
-        // }
-        val hash = readRootOfTrustField(rootOfTrust, targetIndex = 3) ?: return null
+        Log.d(TAG, "Inner bytes length: ${inner.size}")
 
-        return hash.joinToString("") { "%02x".format(it) }
-    }
+        // inner is now the KeyDescription SEQUENCE
+        // KeyDescription layout:
+        //   SEQUENCE {
+        //     INTEGER  attestationVersion       [0]
+        //     ENUM     attestationSecurityLevel [1]
+        //     INTEGER  keymasterVersion         [2]
+        //     ENUM     keymasterSecurityLevel   [3]
+        //     OCTET    attestationChallenge     [4]
+        //     OCTET    uniqueId                 [5]
+        //     SEQUENCE softwareEnforced         [6]
+        //     SEQUENCE teeEnforced              [7]  ← RootOfTrust lives here
+        //   }
 
-    // ── ASN.1 helpers ─────────────────────────────────────────────────────
+        val topChildren = parseSequenceChildren(inner) ?: run {
+            Log.e(TAG, "Failed to parse KeyDescription top-level SEQUENCE")
+            return null
+        }
 
-    /** Unwraps a DER OCTET STRING wrapper (used by getExtensionValue). */
-    private fun unwrapOctetString(data: ByteArray): ByteArray? {
-        if (data.isEmpty() || data[0].toInt() and 0xFF != TAG_OCTET) return null
-        val (len, headerLen) = readLength(data, 1)
-        return data.copyOfRange(headerLen, headerLen + len)
-    }
+        Log.d(TAG, "KeyDescription has ${topChildren.size} top-level children")
 
-    /**
-     * The KeyDescription SEQUENCE layout (simplified) is:
-     *   SEQUENCE {
-     *     INTEGER  attestationVersion
-     *     ENUM     attestationSecurityLevel
-     *     INTEGER  keymasterVersion
-     *     ENUM     keymasterSecurityLevel
-     *     OCTET    attestationChallenge
-     *     OCTET    uniqueId
-     *     SEQUENCE softwareEnforced
-     *     SEQUENCE teeEnforced      ← RootOfTrust lives inside here
-     *   }
-     *
-     * We walk the top-level SEQUENCE children and look for a SEQUENCE child
-     * that itself contains a SEQUENCE that matches the RootOfTrust shape.
-     */
-    private fun findRootOfTrust(keyDescDer: ByteArray): ByteArray? {
-        val topChildren = parseSequenceChildren(keyDescDer) ?: return null
+        if (topChildren.size < 8) {
+            Log.e(TAG, "KeyDescription has fewer than 8 children: ${topChildren.size}")
+            return null
+        }
 
-        for (child in topChildren) {
-            if (child.isEmpty() || child[0].toInt() and 0xFF != TAG_SEQUENCE) continue
+        // Child at index 7 is teeEnforced — a SEQUENCE of tagged objects
+        val teeEnforced = topChildren[7]
+        Log.d(TAG, "teeEnforced tag: 0x${(teeEnforced[0].toInt() and 0xFF).toString(16)}, length: ${teeEnforced.size}")
 
-            // Candidate teeEnforced — walk its children looking for RootOfTrust
-            val innerChildren = parseSequenceChildren(child) ?: continue
-            for (inner in innerChildren) {
-                if (inner.isEmpty() || inner[0].toInt() and 0xFF != TAG_SEQUENCE) continue
-                // RootOfTrust starts with an OCTET STRING (verifiedBootKey)
-                val rot = parseSequenceChildren(inner) ?: continue
-                if (rot.size >= 4 && rot[0][0].toInt() and 0xFF == TAG_OCTET) {
-                    return inner   // found it
+        val teeChildren = parseSequenceChildren(teeEnforced) ?: run {
+            Log.e(TAG, "Failed to parse teeEnforced SEQUENCE")
+            return null
+        }
+
+        Log.d(TAG, "teeEnforced has ${teeChildren.size} children")
+
+        // Find RootOfTrust — it's a context-tagged [704] SEQUENCE
+        // Tag 704 = 0x2C0 in base, but encoded as context-specific constructed:
+        // 0xBF + length-of-tag-number + tag-number
+        // OR as a tagged SEQUENCE directly
+        // In practice it's encoded as [704] EXPLICIT SEQUENCE
+        // which appears as a tagged object with tag number 704 (0x2C0)
+
+        for ((idx, child) in teeChildren.withIndex()) {
+            val tag = child[0].toInt() and 0xFF
+            Log.d(TAG, "teeEnforced child[$idx]: tag=0x${tag.toString(16)}, len=${child.size}")
+
+            // RootOfTrust is tagged [704] — look for it
+            // Context-specific constructed with tag 704
+            val tagNo = getTagNumber(child)
+            Log.d(TAG, "  tagNo=$tagNo")
+
+            if (tagNo == 704) {
+                Log.d(TAG, "Found RootOfTrust at teeEnforced child[$idx]")
+                val rotBytes = getTaggedObjectContent(child) ?: continue
+
+                // RootOfTrust SEQUENCE:
+                //   OCTET STRING verifiedBootKey   [0]
+                //   BOOLEAN      deviceLocked      [1]
+                //   ENUM         verifiedBootState [2]
+                //   OCTET STRING verifiedBootHash  [3]
+
+                val rotChildren = parseSequenceChildren(rotBytes) ?: run {
+                    Log.e(TAG, "Failed to parse RootOfTrust SEQUENCE")
+                    return null
                 }
+
+                Log.d(TAG, "RootOfTrust has ${rotChildren.size} children")
+
+                if (rotChildren.size < 4) {
+                    Log.e(TAG, "RootOfTrust has fewer than 4 children")
+                    return null
+                }
+
+                // verifiedBootHash is at index 3
+                val hashField = rotChildren[3]
+                val hashBytes = getValueBytes(hashField) ?: run {
+                    Log.e(TAG, "Failed to get verifiedBootHash value bytes")
+                    return null
+                }
+
+                return hashBytes.joinToString("") { "%02x".format(it) }
             }
         }
+
+        Log.e(TAG, "RootOfTrust [704] not found in teeEnforced")
         return null
     }
 
-    /**
-     * Reads field at [targetIndex] inside a RootOfTrust SEQUENCE.
-     * Returns the raw bytes of the value (not including tag/length).
-     */
-    private fun readRootOfTrustField(rootOfTrustDer: ByteArray, targetIndex: Int): ByteArray? {
-        val children = parseSequenceChildren(rootOfTrustDer) ?: return null
-        if (children.size <= targetIndex) return null
-        val field = children[targetIndex]
-        if (field.size < 2) return null
-        val (len, headerLen) = readLength(field, 1)
-        return field.copyOfRange(headerLen, headerLen + len)
+    // ── ASN.1 helpers ─────────────────────────────────────────────────────────
+
+    private fun unwrapOctetString(data: ByteArray): ByteArray? {
+        if (data.isEmpty()) return null
+        val tag = data[0].toInt() and 0xFF
+        if (tag != 0x04) {
+            Log.w(TAG, "unwrapOctetString: expected tag 0x04, got 0x${tag.toString(16)}")
+            // Try treating as-is (some implementations don't double-wrap)
+            return data
+        }
+        val (len, headerLen) = readLength(data, 1)
+        if (headerLen + len > data.size) return null
+        return data.copyOfRange(headerLen, headerLen + len)
     }
 
-    /** Parses top-level TLV children of a DER SEQUENCE. */
     private fun parseSequenceChildren(der: ByteArray): List<ByteArray>? {
-        if (der.isEmpty() || der[0].toInt() and 0xFF != TAG_SEQUENCE) return null
+        if (der.isEmpty()) return null
+
+        val tag = der[0].toInt() and 0xFF
+
+        // Accept SEQUENCE (0x30) or any constructed tag
+        val isConstructed = (tag and 0x20) != 0
+        if (!isConstructed) {
+            Log.w(TAG, "parseSequenceChildren: tag 0x${tag.toString(16)} is not constructed")
+            return null
+        }
+
         val (seqLen, seqHeaderLen) = readLength(der, 1)
+        val end = seqHeaderLen + seqLen
+
+        if (end > der.size) {
+            Log.e(TAG, "parseSequenceChildren: declared length $seqLen exceeds buffer ${der.size - seqHeaderLen}")
+            return null
+        }
 
         val children = mutableListOf<ByteArray>()
         var pos = seqHeaderLen
-        val end = seqHeaderLen + seqLen
 
         while (pos < end) {
             if (pos >= der.size) break
-            val (childLen, childHeaderLen) = readLength(der, pos + 1)
-            val totalLen = 1 + childHeaderLen + childLen - (pos + 1) // tag + header + value
-            val childBytes = der.copyOfRange(pos, pos + 1 + (childHeaderLen - 1) + childLen)
-            children.add(childBytes)
-            pos += 1 + (childHeaderLen - 1) + childLen
+
+            // Read tag (may be multi-byte)
+            val tagStart = pos
+            pos++ // skip first tag byte
+
+            // Handle long-form tag
+            val firstTagByte = der[tagStart].toInt() and 0xFF
+            if ((firstTagByte and 0x1F) == 0x1F) {
+                // Long form tag — skip continuation bytes
+                while (pos < end && (der[pos].toInt() and 0x80) != 0) pos++
+                pos++ // skip last tag byte
+            }
+
+            if (pos >= end) break
+
+            val (childLen, childHeaderOffset) = readLength(der, pos)
+            pos = childHeaderOffset
+
+            val totalChildLen = (pos - tagStart) + childLen
+            if (tagStart + totalChildLen > der.size) break
+
+            children.add(der.copyOfRange(tagStart, tagStart + totalChildLen))
+            pos += childLen
         }
 
         return children
     }
 
-    /**
-     * Reads a DER length field starting at [offset].
-     * Returns Pair(length, nextOffset).
-     */
+    private fun getTagNumber(tlv: ByteArray): Int {
+        if (tlv.isEmpty()) return -1
+        val firstByte = tlv[0].toInt() and 0xFF
+        val baseTag = firstByte and 0x1F
+
+        return if (baseTag != 0x1F) {
+            // Short form tag
+            baseTag
+        } else {
+            // Long form tag — read continuation bytes
+            var tagNo = 0
+            var i = 1
+            while (i < tlv.size) {
+                val b = tlv[i].toInt() and 0xFF
+                tagNo = (tagNo shl 7) or (b and 0x7F)
+                i++
+                if ((b and 0x80) == 0) break
+            }
+            tagNo
+        }
+    }
+
+    private fun getTaggedObjectContent(tlv: ByteArray): ByteArray? {
+        // Skip tag bytes
+        if (tlv.isEmpty()) return null
+        var pos = 1
+        val firstByte = tlv[0].toInt() and 0xFF
+        if ((firstByte and 0x1F) == 0x1F) {
+            while (pos < tlv.size && (tlv[pos].toInt() and 0x80) != 0) pos++
+            pos++ // last tag byte
+        }
+
+        val (contentLen, headerEnd) = readLength(tlv, pos)
+        if (headerEnd + contentLen > tlv.size) return null
+
+        val content = tlv.copyOfRange(headerEnd, headerEnd + contentLen)
+
+        // If the content starts with a SEQUENCE tag, return as-is for parseSequenceChildren
+        // If it's implicit, wrap it as a SEQUENCE
+        if (content.isEmpty()) return null
+
+        val innerTag = content[0].toInt() and 0xFF
+        return if (innerTag == 0x30) {
+            content // already a SEQUENCE
+        } else {
+            // Wrap in SEQUENCE for uniform parsing
+            val wrapped = ByteArray(content.size + 2)
+            wrapped[0] = 0x30
+            wrapped[1] = content.size.toByte()
+            System.arraycopy(content, 0, wrapped, 2, content.size)
+            wrapped
+        }
+    }
+
+    private fun getValueBytes(tlv: ByteArray): ByteArray? {
+        if (tlv.size < 2) return null
+        var pos = 1
+        val firstByte = tlv[0].toInt() and 0xFF
+        if ((firstByte and 0x1F) == 0x1F) {
+            while (pos < tlv.size && (tlv[pos].toInt() and 0x80) != 0) pos++
+            pos++
+        }
+        val (len, headerEnd) = readLength(tlv, pos)
+        if (headerEnd + len > tlv.size) return null
+        return tlv.copyOfRange(headerEnd, headerEnd + len)
+    }
+
     private fun readLength(data: ByteArray, offset: Int): Pair<Int, Int> {
+        if (offset >= data.size) return Pair(0, offset)
         val first = data[offset].toInt() and 0xFF
         return if (first < 0x80) {
             Pair(first, offset + 1)
@@ -207,6 +306,7 @@ object KeyboxCertParser {
             val numBytes = first and 0x7F
             var len = 0
             for (i in 0 until numBytes) {
+                if (offset + 1 + i >= data.size) break
                 len = (len shl 8) or (data[offset + 1 + i].toInt() and 0xFF)
             }
             Pair(len, offset + 1 + numBytes)
